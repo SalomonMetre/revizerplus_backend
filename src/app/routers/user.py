@@ -70,19 +70,20 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
+# Email Utility
 async def send_email(subject: str, recipient: str, body: str) -> None:
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = settings.gmail_email
+    msg["From"] = settings.brevo_email
     msg["To"] = recipient
     msg.set_content(body)
     await aiosmtplib.send(
         msg,
-        hostname="smtp.gmail.com",
-        port=587,
+        hostname="smtp-relay.brevo.com",
+        port=2525,  # Use 2525 due to DigitalOcean port restrictions
         start_tls=True,
-        username=settings.gmail_email,
-        password=settings.gmail_password,
+        username=settings.brevo_email,
+        password=settings.brevo_smtp_key,
     )
 
 # Schemas
