@@ -1,4 +1,4 @@
-name: revizerplus
+name: revizerplus_backend
 channels:
   - defaults
   - https://repo.anaconda.com/pkgs/main
