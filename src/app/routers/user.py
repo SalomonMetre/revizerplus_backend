@@ -83,7 +83,7 @@ async def send_email_via_api(recipient: str, subject: str, content: str):
 
     api_instance = TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
     
-    sender = {"name": "Your App", "email": settings.brevo_email}
+    sender = {"name": "Revizer Plus", "email": settings.brevo_email}
     to = [{"email": recipient}]
     
     try:
