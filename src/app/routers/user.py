@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+import sib_api_v3_sdk
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 from pydantic import BaseModel, EmailStr
@@ -19,6 +20,10 @@ from app.crud.user_token import get_valid_tokens_by_user_id, create_user_tokens
 from app.core.database import get_db
 from app.core.config import settings
 from app.models import user, user_token
+
+# sib_api_v3_sdk is the new name for Brevo's API client
+from sib_api_v3_sdk import SendSmtpEmail, TransactionalEmailsApi
+from sib_api_v3_sdk.rest import ApiException
 
 router = APIRouter(prefix="/users", tags=["users"])
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
@@ -71,20 +76,31 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 # Email Utility
-async def send_email(subject: str, recipient: str, body: str) -> None:
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = settings.brevo_email
-    msg["To"] = recipient
-    msg.set_content(body)
-    await aiosmtplib.send(
-        msg,
-        hostname="smtp-relay.brevo.com",
-        port=2525,  # Use 2525 due to DigitalOcean port restrictions
-        start_tls=True,
-        username=settings.brevo_email,
-        password=settings.brevo_smtp_key,
-    )
+
+async def send_email_via_api(recipient: str, subject: str, content: str):
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = settings.brevo_smtp_key  # Different from SMTP key
+
+    api_instance = TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    
+    sender = {"name": "Your App", "email": settings.brevo_email}
+    to = [{"email": recipient}]
+    
+    try:
+        send_smtp_email = SendSmtpEmail(
+            sender=sender,
+            to=to,
+            subject=subject,
+            html_content=content
+        )
+        
+        api_response = api_instance.send_transac_email(send_smtp_email)
+        return api_response
+    except ApiException as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Brevo API error: {e}"
+        )
 
 # Schemas
 class EmailSchema(BaseModel):
@@ -116,10 +132,10 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     otp = str(random.randint(100000, 999999))
     await redis_client.setex(f"otp:{user.email}", 300, otp)
 
-    await send_email(
-        subject="Your OTP Code",
+    await send_email_via_api(
         recipient=user.email,
-        body=f"Your OTP code is: {otp}"
+        subject="Your OTP Code",
+        content=f"Your OTP code is: {otp}"
     )
     return new_user
 
@@ -128,10 +144,10 @@ async def get_otp(data: EmailSchema):
     otp = str(random.randint(100000, 999999))
     await redis_client.setex(f"otp:{data.email}", 300, otp)
 
-    await send_email(
-        subject="Your OTP Code",
+    await send_email_via_api(
         recipient=data.email,
-        body=f"Your OTP code is: {otp}"
+        subject="Your OTP Code",
+        content=f"Your OTP code is: {otp}"
     )
     return {"message": "OTP sent to your email"}
 
