@@ -1,0 +1,17 @@
+# Ignore everything
+*
+
+# Allow the src directory
+!src/
+
+# Allow all contents under src/app
+!src/app/
+!src/app/**
+
+# Allow environment file and README
+!environment.yml
+!README.md
+
+#ignore .pyc files
+*.pyc
+__pycache__/
