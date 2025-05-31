@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from pydantic import BaseModel, EmailStr
 from jose import JWTError, jwt
 from typing import Optional
@@ -270,32 +270,32 @@ async def refresh_token(
 ):
     now = datetime.now(timezone.utc)
 
-    # Find the token record in DB
+    # Step 1: Check if refresh token exists and is valid
     result = await db.execute(
-        select(UserToken).where(UserToken.refresh_token == refresh_token)
+        select(user_token.UserToken).where(user_token.UserToken.refresh_token == refresh_token)
     )
-    token: UserToken = result.scalars().first()
+    token = result.scalars().first()
 
-    # Check validity
     if not token or token.refresh_token_expiry <= now:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    # Generate new secure tokens
-    new_access_token = secrets.token_urlsafe(32)
-    new_refresh_token = secrets.token_urlsafe(64)
+    user_id = token.user_id
 
-    # Set new expiry times
-    access_token_expiry = now + timedelta(minutes=15)
-    refresh_token_expiry = now + timedelta(days=7)
+    # Step 2: Generate new tokens using your existing helpers
+    access_token_expiry = timedelta(minutes=settings.access_token_expire_minutes)
+    refresh_token_expiry = timedelta(days=settings.refresh_token_expire_days)
 
-    # Create and save the new tokens (also deletes old ones)
+    new_access_token = create_access_token(data={"sub": str(user_id)}, expires_delta=access_token_expiry)
+    new_refresh_token = create_refresh_token(data={"sub": str(user_id)}, expires_delta=refresh_token_expiry)
+
+    # Step 3: Save to DB (old token is deleted inside create_user_tokens)
     new_token = await create_user_tokens(
         db=db,
-        user_id=token.user_id,
+        user_id=user_id,
         access_token=new_access_token,
         refresh_token=new_refresh_token,
-        access_token_expiry=access_token_expiry,
-        refresh_token_expiry=refresh_token_expiry,
+        access_token_expiry=now + access_token_expiry,
+        refresh_token_expiry=now + refresh_token_expiry,
     )
 
     return {
