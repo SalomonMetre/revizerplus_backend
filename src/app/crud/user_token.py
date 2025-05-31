@@ -5,28 +5,34 @@ from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
 from app.models.user_token import UserToken
 
+from typing import Optional
+from sqlalchemy import select
+from datetime import datetime
+from app.models import UserToken  # Adjust import as per your project structure
+
 async def get_valid_tokens_by_user_id(
-    *,  # Force keyword arguments
+    *, 
     db: AsyncSession, 
     user_id: int, 
     current_time: datetime
-) -> List[UserToken]:
+) -> Optional[UserToken]:
     """
-    Retrieve all valid tokens for a user
+    Retrieve the latest valid tokens for a user, if any.
     Args:
         db: Async database session
         user_id: ID of the user
         current_time: Timezone-aware datetime for validation
     Returns:
-        List of valid UserToken objects
+        A single valid UserToken object or None
     """
     result = await db.execute(
         select(UserToken).where(
             UserToken.user_id == user_id,
-            UserToken.access_token_expiry > current_time
-        )
+            UserToken.access_token_expiry > current_time,
+            UserToken.refresh_token_expiry > current_time
+        ).order_by(UserToken.created_at.desc())
     )
-    return result.scalars().all()
+    return result.scalars().first()
 
 async def create_user_tokens(
     *,
