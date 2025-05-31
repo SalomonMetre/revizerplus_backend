@@ -94,21 +94,23 @@ async def send_email_via_api(recipient: str, subject: str, content: str):
 class EmailSchema(BaseModel):
     email: EmailStr
 
-
 class ConfirmOTPSchema(EmailSchema):
     otp_code: str
-
 
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str
-
 
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    access_token_expiry: str
+    refresh_token: str
+    refresh_token_expiry: str
 
 class UserMeResponse(UserOut):
     pass
@@ -116,24 +118,30 @@ class UserMeResponse(UserOut):
 # ------------------------- Endpoints -------------------------
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    if await get_user_by_email(db, user.email):
+async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+    """Register a new user and send OTP for email verification."""
+    if await get_user_by_email(db, user_data.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    new_user = await create_user(db, user)
+    new_user = await create_user(db, user_data)
     otp = str(random.randint(100000, 999999))
-    await redis_client.setex(f"otp:{user.email}", 300, otp)
+    await redis_client.setex(f"otp:{user_data.email}", 300, otp)
 
-    await send_email_via_api(user.email, "Your OTP Code", f"Your OTP code is: {otp}")
+    await send_email_via_api(
+        recipient=user_data.email, 
+        subject="Your OTP Code", 
+        content=f"<p>Your OTP code is: <strong>{otp}</strong></p><p>This code will expire in 5 minutes.</p>"
+    )
     return new_user
 
 @router.post("/get_otp")
 async def get_otp(data: EmailSchema, db: AsyncSession = Depends(get_db)):
-    user = await get_user_by_email(db, data.email)
-    if not user:
+    """Send OTP to user's email for verification."""
+    user_obj = await get_user_by_email(db, data.email)
+    if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.otp_confirmed:
+    if user_obj.otp_confirmed:
         raise HTTPException(status_code=400, detail="OTP already confirmed for this user")
 
     otp = str(random.randint(100000, 999999))
@@ -142,17 +150,18 @@ async def get_otp(data: EmailSchema, db: AsyncSession = Depends(get_db)):
     await send_email_via_api(
         recipient=data.email,
         subject="Your OTP Code",
-        content=f"Your OTP code is: {otp}"
+        content=f"<p>Your OTP code is: <strong>{otp}</strong></p><p>This code will expire in 5 minutes.</p>"
     )
     return {"message": "OTP sent to your email"}
 
 @router.post("/confirm_otp", response_model=TokenResponse)
 async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)):
-    user = await get_user_by_email(db, data.email)
-    if not user:
+    """Confirm OTP and return authentication tokens."""
+    user_obj = await get_user_by_email(db, data.email)
+    if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.otp_confirmed:
+    if user_obj.otp_confirmed:
         raise HTTPException(status_code=400, detail="OTP already confirmed for this user")
 
     stored_otp = await redis_client.get(f"otp:{data.email}")
@@ -163,17 +172,17 @@ async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)
     await confirm_user_otp(db, data.email)
     await redis_client.delete(f"otp:{data.email}")
 
-    # Re-fetch the updated user to ensure fresh state (especially for role)
-    user = await get_user_by_email(db, data.email)
+    # Re-fetch the updated user to ensure fresh state
+    user_obj = await get_user_by_email(db, data.email)
 
     now = datetime.now(timezone.utc)
-    token_data = {"sub": user.email, "role": user.role.value}
+    token_data = {"sub": user_obj.email, "role": user_obj.role.value}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
     await create_user_tokens(
         db=db,
-        user_id=user.id,
+        user_id=user_obj.id,
         access_token=access_token,
         refresh_token=refresh_token,
         access_token_expiry=now + timedelta(minutes=settings.access_token_expire_minutes),
@@ -188,56 +197,59 @@ async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)
 
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
-    user = await get_user_by_email(db, data.email)
+    """Authenticate user and return tokens."""
+    user_obj = await get_user_by_email(db, data.email)
     
-    if not user or not verify_password(data.password, user.password):
+    if not user_obj or not verify_password(data.password, user_obj.password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
 
-    if not user.is_active or not user.otp_confirmed:
+    if not user_obj.is_active or not user_obj.otp_confirmed:
         raise HTTPException(status_code=403, detail="Account not activated")
 
     now = datetime.now(timezone.utc)
+    token_data = {"sub": user_obj.email, "role": user_obj.role.value}
 
     # Get the latest token (even if expired)
-    token = await get_latest_token_for_user(db, user.id)
+    existing_token = await get_latest_token_for_user(db, user_obj.id)
     
-    # Default to creating new tokens
+    # Initialize new token variables
     new_access_token = None
     new_refresh_token = None
     access_token_expiry = None
     refresh_token_expiry = None
+    needs_update = False
 
-    token_data = {"sub": user.email, "role": user.role.value}
-
-    if token:
+    if existing_token:
         # Check if access token expired
-        if token.access_token_expiry <= now:
+        if existing_token.access_token_expiry <= now:
             new_access_token = create_access_token(token_data)
             access_token_expiry = now + timedelta(minutes=settings.access_token_expire_minutes)
+            needs_update = True
         else:
-            new_access_token = token.access_token
-            access_token_expiry = token.access_token_expiry
+            new_access_token = existing_token.access_token
+            access_token_expiry = existing_token.access_token_expiry
 
         # Check if refresh token expired
-        if token.refresh_token_expiry <= now:
+        if existing_token.refresh_token_expiry <= now:
             new_refresh_token = create_refresh_token(token_data)
             refresh_token_expiry = now + timedelta(days=settings.refresh_token_expire_days)
+            needs_update = True
         else:
-            new_refresh_token = token.refresh_token
-            refresh_token_expiry = token.refresh_token_expiry
+            new_refresh_token = existing_token.refresh_token
+            refresh_token_expiry = existing_token.refresh_token_expiry
 
-        # If either token was renewed, update the DB
-        if token.access_token != new_access_token or token.refresh_token != new_refresh_token:
+        # Update DB if any token was renewed
+        if needs_update:
             await create_user_tokens(
                 db=db,
-                user_id=user.id,
+                user_id=user_obj.id,
                 access_token=new_access_token,
                 refresh_token=new_refresh_token,
                 access_token_expiry=access_token_expiry,
                 refresh_token_expiry=refresh_token_expiry
             )
     else:
-        # No token found, generate both
+        # No existing token, generate both
         new_access_token = create_access_token(token_data)
         new_refresh_token = create_refresh_token(token_data)
         access_token_expiry = now + timedelta(minutes=settings.access_token_expire_minutes)
@@ -245,7 +257,7 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
 
         await create_user_tokens(
             db=db,
-            user_id=user.id,
+            user_id=user_obj.id,
             access_token=new_access_token,
             refresh_token=new_refresh_token,
             access_token_expiry=access_token_expiry,
@@ -263,47 +275,56 @@ async def read_current_user(current_user: user.User = Depends(get_current_user))
     """Returns current authenticated user's info."""
     return current_user
 
-@router.post("/refresh")
+@router.post("/refresh", response_model=RefreshTokenResponse)
 async def refresh_token(
     refresh_token: str = Header(..., alias="X-Refresh-Token"),
     db: AsyncSession = Depends(get_db),
 ):
+    """Refresh access and refresh tokens using a valid refresh token."""
     now = datetime.now(timezone.utc)
 
     # Step 1: Check if refresh token exists and is valid
     result = await db.execute(
         select(user_token.UserToken).where(user_token.UserToken.refresh_token == refresh_token)
     )
-    token = result.scalars().first()
+    token_record = result.scalars().first()
 
-    if not token or token.refresh_token_expiry <= now:
+    if not token_record or token_record.refresh_token_expiry <= now:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user_id = token.user_id
+    # Step 2: Get user information for token payload
+    user_result = await db.execute(
+        select(user.User).where(user.User.id == token_record.user_id)
+    )
+    user_obj = user_result.scalars().first()
+    
+    if not user_obj:
+        raise HTTPException(status_code=401, detail="User not found")
 
-    # Step 2: Generate new tokens using your existing helpers
+    # Step 3: Generate new tokens with proper user data
+    token_data = {"sub": user_obj.email, "role": user_obj.role.value}
     access_token_expiry = timedelta(minutes=settings.access_token_expire_minutes)
     refresh_token_expiry = timedelta(days=settings.refresh_token_expire_days)
 
-    new_access_token = create_access_token(data={"sub": str(user_id)}, expires_delta=access_token_expiry)
-    new_refresh_token = create_refresh_token(data={"sub": str(user_id)}, expires_delta=refresh_token_expiry)
+    new_access_token = create_access_token(data=token_data, expires_delta=access_token_expiry)
+    new_refresh_token = create_refresh_token(data=token_data, expires_delta=refresh_token_expiry)
 
-    # Step 3: Save to DB (old token is deleted inside create_user_tokens)
+    # Step 4: Save to DB (old token is deleted inside create_user_tokens)
     new_token = await create_user_tokens(
         db=db,
-        user_id=user_id,
+        user_id=user_obj.id,
         access_token=new_access_token,
         refresh_token=new_refresh_token,
         access_token_expiry=now + access_token_expiry,
         refresh_token_expiry=now + refresh_token_expiry,
     )
 
-    return {
-        "access_token": new_token.access_token,
-        "access_token_expiry": new_token.access_token_expiry.isoformat(),
-        "refresh_token": new_token.refresh_token,
-        "refresh_token_expiry": new_token.refresh_token_expiry.isoformat(),
-    }
+    return RefreshTokenResponse(
+        access_token=new_token.access_token,
+        access_token_expiry=new_token.access_token_expiry.isoformat(),
+        refresh_token=new_token.refresh_token,
+        refresh_token_expiry=new_token.refresh_token_expiry.isoformat(),
+    )
 
 @router.post("/logout")
 async def logout(
@@ -311,13 +332,14 @@ async def logout(
     current_user: user.User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Blacklist current token and optionally remove all tokens from DB."""
+    """Blacklist current token and remove all user tokens from DB."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         exp = datetime.fromtimestamp(payload["exp"], timezone.utc)
-        ttl = (exp - datetime.now(timezone.utc)).total_seconds()
-        await redis_client.setex(f"blacklist:{token}", int(ttl), "revoked")
+        ttl = max(1, int((exp - datetime.now(timezone.utc)).total_seconds()))
+        await redis_client.setex(f"blacklist:{token}", ttl, "revoked")
 
+        # Remove all tokens for this user from database
         await db.execute(delete(user_token.UserToken).where(user_token.UserToken.user_id == current_user.id))
         await db.commit()
 
