@@ -8,7 +8,7 @@ from app.models.user_token import UserToken
 from typing import Optional
 from sqlalchemy import select
 from datetime import datetime
-from app.models import UserToken  # Adjust import as per your project structure
+from app.models.user_token import UserToken  # Adjust import as per your project structure
 
 async def get_valid_tokens_by_user_id(
     *, 
