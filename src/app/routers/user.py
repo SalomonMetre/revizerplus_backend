@@ -160,12 +160,15 @@ async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)
     if not stored_otp or stored_otp != data.otp_code:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
+    # Mark OTP as confirmed in DB
     await confirm_user_otp(db, data.email)
     await redis_client.delete(f"otp:{data.email}")
 
+    # Re-fetch the updated user to ensure fresh state (especially for role)
+    user = await get_user_by_email(db, data.email)
+
     now = datetime.now(timezone.utc)
     token_data = {"sub": user.email, "role": user.role.value}
-
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -71,23 +72,31 @@ async def create_user(db: AsyncSession, user: UserCreate) -> User:
         raise ValueError(f"Failed to create user: {str(e)}")
 
 async def confirm_user_otp(db: AsyncSession, email: str) -> Optional[User]:
-    """Confirm a user's OTP and activate their account.
+    """
+    Confirm a user's OTP and activate their account.
 
     Args:
         db: Async SQLAlchemy session.
         email: The email address of the user to confirm.
 
     Returns:
-        The confirmed User object or None if no user is found.
+        The confirmed User object or None if no user is found or already confirmed.
     """
     result = await db.execute(select(User).filter(User.email == email))
     user = result.scalars().first()
-    if user and not user.otp_confirmed:
+
+    if not user:
+        return None
+
+    if not user.otp_confirmed:
         user.otp_confirmed = True
         user.is_active = True
+        user.updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(user)
+
     return user
+
 
 async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
     """Retrieve a user by their email address.
