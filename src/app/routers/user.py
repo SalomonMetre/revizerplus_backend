@@ -17,7 +17,7 @@ from sib_api_v3_sdk.rest import ApiException
 # Local modules
 from app.schemas.user import UserCreate, UserOut
 from app.crud.user import create_user, get_user_by_email, confirm_user_otp
-from app.crud.user_token import get_valid_tokens_by_user_id, create_user_tokens
+from app.crud.user_token import get_latest_token_for_user, create_user_tokens
 from app.core.database import get_db
 from app.core.config import settings
 from app.models import user, user_token
@@ -57,13 +57,11 @@ async def get_current_user(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
     except Exception:
         return False
-
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
@@ -71,13 +69,11 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
-
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=settings.refresh_token_expire_days))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
-
 
 async def send_email_via_api(recipient: str, subject: str, content: str):
     configuration = Configuration()
@@ -92,7 +88,6 @@ async def send_email_via_api(recipient: str, subject: str, content: str):
         return api_instance.send_transac_email(email)
     except ApiException as e:
         raise HTTPException(status_code=500, detail=f"Brevo API error: {e}")
-
 
 # ------------------------- Schemas -------------------------
 
@@ -201,33 +196,63 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
 
     now = datetime.now(timezone.utc)
 
-    # Fetch latest valid token (if any)
-    existing_token = await get_valid_tokens_by_user_id(db=db, user_id=user.id, current_time=now)
+    # Get the latest token (even if expired)
+    token = await get_latest_token_for_user(db, user.id)
+    
+    # Default to creating new tokens
+    new_access_token = None
+    new_refresh_token = None
+    access_token_expiry = None
+    refresh_token_expiry = None
 
-    if existing_token:
-        return TokenResponse(
-            access_token=existing_token.access_token,
-            refresh_token=existing_token.refresh_token,
-            token_type="bearer"
+    token_data = {"sub": user.email, "role": user.role.value}
+
+    if token:
+        # Check if access token expired
+        if token.access_token_expiry <= now:
+            new_access_token = create_access_token(token_data)
+            access_token_expiry = now + timedelta(minutes=settings.access_token_expire_minutes)
+        else:
+            new_access_token = token.access_token
+            access_token_expiry = token.access_token_expiry
+
+        # Check if refresh token expired
+        if token.refresh_token_expiry <= now:
+            new_refresh_token = create_refresh_token(token_data)
+            refresh_token_expiry = now + timedelta(days=settings.refresh_token_expire_days)
+        else:
+            new_refresh_token = token.refresh_token
+            refresh_token_expiry = token.refresh_token_expiry
+
+        # If either token was renewed, update the DB
+        if token.access_token != new_access_token or token.refresh_token != new_refresh_token:
+            await create_user_tokens(
+                db=db,
+                user_id=user.id,
+                access_token=new_access_token,
+                refresh_token=new_refresh_token,
+                access_token_expiry=access_token_expiry,
+                refresh_token_expiry=refresh_token_expiry
+            )
+    else:
+        # No token found, generate both
+        new_access_token = create_access_token(token_data)
+        new_refresh_token = create_refresh_token(token_data)
+        access_token_expiry = now + timedelta(minutes=settings.access_token_expire_minutes)
+        refresh_token_expiry = now + timedelta(days=settings.refresh_token_expire_days)
+
+        await create_user_tokens(
+            db=db,
+            user_id=user.id,
+            access_token=new_access_token,
+            refresh_token=new_refresh_token,
+            access_token_expiry=access_token_expiry,
+            refresh_token_expiry=refresh_token_expiry
         )
 
-    # Generate new tokens if none are valid
-    token_data = {"sub": user.email, "role": user.role.value}
-    access_token = create_access_token(token_data)
-    refresh_token = create_refresh_token(token_data)
-
-    await create_user_tokens(
-        db=db,
-        user_id=user.id,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        access_token_expiry=now + timedelta(minutes=settings.access_token_expire_minutes),
-        refresh_token_expiry=now + timedelta(days=settings.refresh_token_expire_days)
-    )
-
     return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
         token_type="bearer"
     )
 

@@ -10,18 +10,9 @@ from sqlalchemy import select
 from datetime import datetime
 from app.models import UserToken  # Adjust import as per your project structure
 
-async def get_valid_tokens_by_user_id(
-    *, 
-    db: AsyncSession, 
-    user_id: int, 
-    current_time: datetime
-) -> Optional[UserToken]:
+async def get_latest_token_for_user(db: AsyncSession, user_id: int) -> Optional[UserToken]:
     result = await db.execute(
-        select(UserToken).where(
-            UserToken.user_id == user_id,
-            UserToken.access_token_expiry > current_time,
-            UserToken.refresh_token_expiry > current_time
-        ).order_by(UserToken.created_at.desc())
+        select(UserToken).where(UserToken.user_id == user_id).order_by(UserToken.created_at.desc())
     )
     return result.scalars().first()
 
