@@ -133,28 +133,61 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     await send_email_via_api(user.email, "Your OTP Code", f"Your OTP code is: {otp}")
     return new_user
 
-
 @router.post("/get_otp")
-async def get_otp(data: EmailSchema):
+async def get_otp(data: EmailSchema, db: AsyncSession = Depends(get_db)):
+    user = await get_user_by_email(db, data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.otp_confirmed:
+        raise HTTPException(status_code=400, detail="OTP already confirmed for this user")
+
     otp = str(random.randint(100000, 999999))
     await redis_client.setex(f"otp:{data.email}", 300, otp)
 
-    await send_email_via_api(data.email, "Your OTP Code", f"Your OTP code is: {otp}")
+    await send_email_via_api(
+        recipient=data.email,
+        subject="Your OTP Code",
+        content=f"Your OTP code is: {otp}"
+    )
     return {"message": "OTP sent to your email"}
 
-
-@router.post("/confirm_otp")
+@router.post("/confirm_otp", response_model=TokenResponse)
 async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)):
+    user = await get_user_by_email(db, data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.otp_confirmed:
+        raise HTTPException(status_code=400, detail="OTP already confirmed for this user")
+
     stored_otp = await redis_client.get(f"otp:{data.email}")
     if not stored_otp or stored_otp != data.otp_code:
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
-    user_obj = await confirm_user_otp(db, data.email)
-    if not user_obj:
-        raise HTTPException(status_code=404, detail="User not found")
-
+    await confirm_user_otp(db, data.email)
     await redis_client.delete(f"otp:{data.email}")
-    return {"message": "OTP confirmed. You can now log in."}
+
+    now = datetime.now(timezone.utc)
+    token_data = {"sub": user.email, "role": user.role.value}
+
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+
+    await create_user_tokens(
+        db=db,
+        user_id=user.id,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        access_token_expiry=now + timedelta(minutes=settings.access_token_expire_minutes),
+        refresh_token_expiry=now + timedelta(days=settings.refresh_token_expire_days)
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
