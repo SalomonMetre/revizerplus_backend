@@ -192,6 +192,7 @@ async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
     user = await get_user_by_email(db, data.email)
+    
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
 
@@ -200,16 +201,17 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
 
     now = datetime.now(timezone.utc)
 
-    # Check for existing valid tokens
-    valid_tokens = await get_valid_tokens_by_user_id(db, user.id)
-    if valid_tokens:
+    # Fetch latest valid token (if any)
+    existing_token = await get_valid_tokens_by_user_id(db=db, user_id=user.id, current_time=now)
+
+    if existing_token:
         return TokenResponse(
-            access_token=valid_tokens.access_token,
-            refresh_token=valid_tokens.refresh_token,
+            access_token=existing_token.access_token,
+            refresh_token=existing_token.refresh_token,
             token_type="bearer"
         )
 
-    # Generate new tokens
+    # Generate new tokens if none are valid
     token_data = {"sub": user.email, "role": user.role.value}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
@@ -228,7 +230,6 @@ async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
         refresh_token=refresh_token,
         token_type="bearer"
     )
-
 
 @router.get("/me", response_model=UserMeResponse)
 async def read_current_user(current_user: user.User = Depends(get_current_user)):

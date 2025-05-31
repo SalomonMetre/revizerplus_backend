@@ -16,15 +16,6 @@ async def get_valid_tokens_by_user_id(
     user_id: int, 
     current_time: datetime
 ) -> Optional[UserToken]:
-    """
-    Retrieve the latest valid tokens for a user, if any.
-    Args:
-        db: Async database session
-        user_id: ID of the user
-        current_time: Timezone-aware datetime for validation
-    Returns:
-        A single valid UserToken object or None
-    """
     result = await db.execute(
         select(UserToken).where(
             UserToken.user_id == user_id,
