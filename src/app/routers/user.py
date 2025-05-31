@@ -189,39 +189,45 @@ async def confirm_otp(data: ConfirmOTPSchema, db: AsyncSession = Depends(get_db)
         token_type="bearer"
     )
 
-
 @router.post("/login", response_model=TokenResponse)
 async def login(data: LoginSchema, db: AsyncSession = Depends(get_db)):
-    user_obj = await get_user_by_email(db, data.email)
-    if not user_obj or not verify_password(data.password, user_obj.password):
+    user = await get_user_by_email(db, data.email)
+    if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=400, detail="Incorrect email or password")
 
-    if not user_obj.is_active or not user_obj.otp_confirmed:
+    if not user.is_active or not user.otp_confirmed:
         raise HTTPException(status_code=403, detail="Account not activated")
 
     now = datetime.now(timezone.utc)
 
-    # Optional: clear old tokens
-    await db.execute(delete(user_token.UserToken).where(user_token.UserToken.user_id == user_obj.id))
+    # Check for existing valid tokens
+    valid_tokens = await get_valid_tokens_by_user_id(db, user.id)
+    if valid_tokens:
+        return TokenResponse(
+            access_token=valid_tokens.access_token,
+            refresh_token=valid_tokens.refresh_token,
+            token_type="bearer"
+        )
 
-    token_data = {"sub": user_obj.email, "role": user_obj.role.value}
+    # Generate new tokens
+    token_data = {"sub": user.email, "role": user.role.value}
     access_token = create_access_token(token_data)
     refresh_token = create_refresh_token(token_data)
 
     await create_user_tokens(
         db=db,
-        user_id=user_obj.id,
+        user_id=user.id,
         access_token=access_token,
         refresh_token=refresh_token,
         access_token_expiry=now + timedelta(minutes=settings.access_token_expire_minutes),
-        refresh_token_expiry=now + timedelta(days=settings.refresh_token_expire_days),
+        refresh_token_expiry=now + timedelta(days=settings.refresh_token_expire_days)
     )
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer"
-    }
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
 
 
 @router.get("/me", response_model=UserMeResponse)
