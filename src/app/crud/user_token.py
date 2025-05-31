@@ -1,21 +1,16 @@
-from typing import Optional, List
+from typing import List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy.exc import IntegrityError
-from app.models.user_token import UserToken
-
-from typing import Optional
 from sqlalchemy import select
-from datetime import datetime
-from app.models.user_token import UserToken  # Adjust import as per your project structure
+from sqlalchemy.exc import IntegrityError
+from app.models.user_token import UserToken  # Adjust import as needed
 
 async def get_valid_tokens_by_user_id(
     *, 
     db: AsyncSession, 
     user_id: int, 
     current_time: datetime
-) -> Optional[UserToken]:
+) -> List[UserToken]:
     result = await db.execute(
         select(UserToken).where(
             UserToken.user_id == user_id,
@@ -23,14 +18,16 @@ async def get_valid_tokens_by_user_id(
             UserToken.refresh_token_expiry > current_time
         ).order_by(UserToken.created_at.desc())
     )
-    return result.scalars().first()
+    return result.scalars().all()  # Return a list of valid tokens
 
-async def get_latest_token_for_user(db: AsyncSession, user_id: int) -> Optional[UserToken]:
+async def get_latest_token_for_user(
+    db: AsyncSession, 
+    user_id: int
+) -> Optional[UserToken]:
     result = await db.execute(
         select(UserToken).where(UserToken.user_id == user_id).order_by(UserToken.created_at.desc())
     )
     return result.scalars().first()
-
 
 async def create_user_tokens(
     *,
@@ -41,20 +38,6 @@ async def create_user_tokens(
     access_token_expiry: datetime,
     refresh_token_expiry: datetime,
 ) -> UserToken:
-    """Create a new user token in the database.
-    Args:
-        db: Async SQLAlchemy session.
-        user_id: The ID of the user.
-        access_token: The access token string.
-        refresh_token: The refresh token string.
-        access_token_expiry: The expiry datetime for the access token.
-        refresh_token_expiry: The expiry datetime for the refresh token.
-    Returns:
-        The created UserToken object.
-    Raises:
-        ValueError: If input parameters are invalid.
-        IntegrityError: If a database integrity error occurs.
-    """
     # Validate inputs
     if user_id <= 0:
         raise ValueError("Invalid user ID")
@@ -95,4 +78,3 @@ async def create_user_tokens(
         return user_token
     except IntegrityError as e:
         await db.rollback()
-        raise ValueError(f"Database integrity error: {str(e)}") from e
