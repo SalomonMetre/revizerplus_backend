@@ -10,6 +10,7 @@ class UserRole(PyEnum):
 
 class User(Base):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True)
     name = Column(String)
     email = Column(String, unique=True)
@@ -26,6 +27,8 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.student)
     is_active = Column(Boolean, default=False)
     otp_confirmed = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
     tokens = relationship("UserToken", back_populates="user")
