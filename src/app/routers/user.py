@@ -113,7 +113,6 @@ class TokenResponse(BaseModel):
 class UserMeResponse(UserOut):
     pass
 
-
 # ------------------------- Endpoints -------------------------
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -264,6 +263,47 @@ async def read_current_user(current_user: user.User = Depends(get_current_user))
     """Returns current authenticated user's info."""
     return current_user
 
+@router.post("/refresh")
+async def refresh_token(
+    refresh_token: str = Header(..., alias="X-Refresh-Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+
+    # Find the token record in DB
+    result = await db.execute(
+        select(UserToken).where(UserToken.refresh_token == refresh_token)
+    )
+    token: UserToken = result.scalars().first()
+
+    # Check validity
+    if not token or token.refresh_token_expiry <= now:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    # Generate new secure tokens
+    new_access_token = secrets.token_urlsafe(32)
+    new_refresh_token = secrets.token_urlsafe(64)
+
+    # Set new expiry times
+    access_token_expiry = now + timedelta(minutes=15)
+    refresh_token_expiry = now + timedelta(days=7)
+
+    # Create and save the new tokens (also deletes old ones)
+    new_token = await create_user_tokens(
+        db=db,
+        user_id=token.user_id,
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+        access_token_expiry=access_token_expiry,
+        refresh_token_expiry=refresh_token_expiry,
+    )
+
+    return {
+        "access_token": new_token.access_token,
+        "access_token_expiry": new_token.access_token_expiry.isoformat(),
+        "refresh_token": new_token.refresh_token,
+        "refresh_token_expiry": new_token.refresh_token_expiry.isoformat(),
+    }
 
 @router.post("/logout")
 async def logout(
