@@ -7,10 +7,10 @@ app = FastAPI()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://revizerplus.web.app/"],  # Replace with your frontend's origin
-    allow_credentials=True,  # Allow cookies or auth headers if needed
-    allow_methods=["*"],  # Allow all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allow all headers (e.g., Content-Type, Authorization)
+    allow_origins=["https://revizerplus.web.app/"],      
+    allow_credentials=True,  
+    allow_methods=["*"],  
+    allow_headers=["*"],  
 )
 
 app.include_router(user.router)
