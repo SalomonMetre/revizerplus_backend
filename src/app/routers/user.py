@@ -9,6 +9,7 @@ import random
 import redis.asyncio as redis
 import bcrypt
 from datetime import datetime, timedelta, timezone
+from schemas import UpdateProfileSchema, ProfileUpdateResponse
 
 # Brevo API
 from sib_api_v3_sdk import Configuration, ApiClient, SendSmtpEmail, TransactionalEmailsApi
@@ -325,6 +326,106 @@ async def refresh_token(
         refresh_token=new_token.refresh_token,
         refresh_token_expiry=new_token.refresh_token_expiry.isoformat(),
     )
+    
+@router.put("/profile", response_model=ProfileUpdateResponse)
+async def update_profile(
+    profile_data: UpdateProfileSchema,
+    current_user: user.User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update user profile information."""
+    from datetime import datetime, date
+    
+    updated_fields = []
+    update_data = {}
+    
+    # Validate password change requirements
+    if profile_data.new_password and not profile_data.current_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="Current password is required to change password"
+        )
+    
+    if profile_data.current_password and not profile_data.new_password:
+        raise HTTPException(
+            status_code=400, 
+            detail="New password is required when current password is provided"
+        )
+    
+    # Verify current password if password change is requested
+    if profile_data.current_password and profile_data.new_password:
+        if not verify_password(profile_data.current_password, current_user.password):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        
+        # Hash new password and add to update data
+        update_data["password"] = hash_password(profile_data.new_password)
+        updated_fields.append("password")
+    
+    # Update profile fields based on User model
+    if profile_data.name is not None:
+        update_data["name"] = profile_data.name.strip()
+        updated_fields.append("name")
+    
+    if profile_data.gender is not None:
+        update_data["gender"] = profile_data.gender.strip()
+        updated_fields.append("gender")
+    
+    if profile_data.phone_no is not None:
+        update_data["phone_no"] = profile_data.phone_no.strip()
+        updated_fields.append("phone_no")
+    
+    if profile_data.filiere is not None:
+        update_data["filiere"] = profile_data.filiere.strip()
+        updated_fields.append("filiere")
+    
+    if profile_data.profession is not None:
+        update_data["profession"] = profile_data.profession.strip()
+        updated_fields.append("profession")
+    
+    if profile_data.country is not None:
+        update_data["country"] = profile_data.country.strip()
+        updated_fields.append("country")
+    
+    if profile_data.town is not None:
+        update_data["town"] = profile_data.town.strip()
+        updated_fields.append("town")
+    
+    if profile_data.academic_year is not None:
+        update_data["academic_year"] = profile_data.academic_year.strip()
+        updated_fields.append("academic_year")
+    
+    if profile_data.dob is not None:
+        try:
+            # Parse the date string (expected format: YYYY-MM-DD)
+            dob_date = datetime.strptime(profile_data.dob, "%Y-%m-%d").date()
+            update_data["dob"] = dob_date
+            updated_fields.append("dob")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid date format. Use YYYY-MM-DD format (e.g., 1995-05-15)"
+            )
+    
+    # Add updated_at timestamp
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    # Check if there's actually something to update
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No valid fields provided for update")
+    
+    # Update user profile in database
+    try:
+        await update_user_profile(db, current_user.id, update_data)
+        await db.commit()
+        
+        return ProfileUpdateResponse(
+            message="Profile updated successfully",
+            updated_fields=updated_fields
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
 
 @router.post("/logout")
 async def logout(

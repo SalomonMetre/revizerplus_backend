@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.exc import IntegrityError
@@ -110,3 +111,38 @@ async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
     """
     result = await db.execute(select(User).filter(User.email == email))
     return result.scalars().first()
+
+async def update_user_profile(db: AsyncSession, user_id: int, update_data: Dict[str, Any]) -> User:
+    """
+    Update user profile with the provided data.
+    
+    Args:
+        db: Database session
+        user_id: ID of the user to update
+        update_data: Dictionary containing fields to update
+        
+    Returns:
+        Updated User object
+        
+    Raises:
+        Exception: If user not found or update fails
+    """
+    # Create update statement
+    stmt = update(User).where(User.id == user_id).values(**update_data)
+    
+    # Execute the update
+    result = await db.execute(stmt)
+    
+    # Check if any rows were affected
+    if result.rowcount == 0:
+        raise Exception(f"User with id {user_id} not found")
+    
+    # Fetch and return the updated user
+    updated_user_stmt = select(User).where(User.id == user_id)
+    result = await db.execute(updated_user_stmt)
+    updated_user = result.scalars().first()
+    
+    if not updated_user:
+        raise Exception(f"Failed to fetch updated user with id {user_id}")
+    
+    return updated_user
