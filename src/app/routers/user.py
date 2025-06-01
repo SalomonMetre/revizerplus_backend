@@ -10,7 +10,7 @@ import redis.asyncio as redis
 import bcrypt
 from datetime import datetime, timedelta, timezone
 from app.schemas.user import UpdateProfileSchema, ProfileUpdateResponse
-from app.crud.user import update_user_profile
+from app.crud.user import update_user_profile, get_password_hash
 
 # Brevo API
 from sib_api_v3_sdk import Configuration, ApiClient, SendSmtpEmail, TransactionalEmailsApi
@@ -359,7 +359,7 @@ async def update_profile(
             raise HTTPException(status_code=400, detail="Current password is incorrect")
         
         # Hash new password and add to update data
-        update_data["password"] = hash_password(profile_data.new_password)
+        update_data["password"] = get_password_hash(profile_data.new_password)
         updated_fields.append("password")
     
     # Update profile fields based on User model
