@@ -9,7 +9,8 @@ import random
 import redis.asyncio as redis
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from schemas import UpdateProfileSchema, ProfileUpdateResponse
+from app.schemas.user import UpdateProfileSchema, ProfileUpdateResponse
+from app.crud.user import update_user_profile
 
 # Brevo API
 from sib_api_v3_sdk import Configuration, ApiClient, SendSmtpEmail, TransactionalEmailsApi
