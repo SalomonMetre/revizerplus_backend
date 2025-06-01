@@ -7,7 +7,7 @@ app = FastAPI()
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://revizerplus.web.app/"],      
+    allow_origins=["https://reviserplus.web.app/"],      
     allow_credentials=True,  
     allow_methods=["*"],  
     allow_headers=["*"],  
