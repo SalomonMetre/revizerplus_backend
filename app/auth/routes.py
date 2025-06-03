@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone # Ensure timezone is imported
 from sqlalchemy.future import select # Ensure this import is present for database queries
@@ -176,26 +176,37 @@ async def logout(current_user: User = Depends(get_current_user), db: AsyncSessio
 
 # === Refresh Token ===
 @router.post("/refresh-token")
-async def refresh_token(data: schemas.RefreshTokenSchema, db: AsyncSession = Depends(get_db)):
+async def refresh_token(
+    # Refresh token is now expected in the X-Refresh-Token header
+    x_refresh_token: str = Header(..., alias="X-Refresh-Token", description="Your refresh token"),
+    db: AsyncSession = Depends(get_db)
+):
     """
-    Refreshes access and refresh tokens using a valid refresh token.
-    - Validates the provided refresh token.
-    - Generates new access and refresh tokens for the user.
-    - Updates the tokens in the database.
+    Refreshes access and refresh tokens using a valid refresh token provided in the X-Refresh-Token header.
+    - **Validates** the provided refresh token.
+    - **Generates** new access and refresh tokens for the user.
+    - **Updates** the tokens in the database.
     """
-    payload = await services.validate_token(data.refresh_token)
+    # Use the token from the header for validation
+    payload = await services.validate_token(x_refresh_token)
+    
+    # Ensure the token type is 'refresh'
     if payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
+        raise HTTPException(status_code=401, detail="Invalid refresh token type")
 
+    # Retrieve the user associated with the token's subject (email)
     user = await user_crud.get_user_by_email(db, payload["sub"])
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # In a dedicated refresh scenario, if the refresh token itself is valid,
-    # we typically generate *new* access and *new* refresh tokens
-    # to maintain rolling refresh token security and prevent indefinite use of old tokens.
+    # For a refresh endpoint, it's a common security practice to generate
+    # *both* a new access token and a new refresh token to ensure rolling token security.
+    # This prevents an old refresh token from being used indefinitely.
     tokens = await services.create_tokens(user.id, user.email)
-    await user_crud.save_tokens(db, user.id, tokens) # This will update the existing record
+    
+    # Save the new tokens, which will overwrite the old ones in the database
+    await user_crud.save_tokens(db, user.id, tokens)
+    
     return tokens
 
 
