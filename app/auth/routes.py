@@ -173,7 +173,6 @@ async def logout(current_user: User = Depends(get_current_user), db: AsyncSessio
     await user_crud.revoke_tokens(db, current_user.id)
     return {"msg": "Logged out successfully."}
 
-
 # === Refresh Token ===
 @router.post("/refresh-token")
 async def refresh_token(
@@ -183,32 +182,70 @@ async def refresh_token(
 ):
     """
     Refreshes access and refresh tokens using a valid refresh token provided in the X-Refresh-Token header.
-    - **Validates** the provided refresh token.
-    - **Generates** new access and refresh tokens for the user.
-    - **Updates** the tokens in the database.
+    - Validates the provided refresh token.
+    - **Crucially, it checks the expiry of the *existing* tokens in the DB and only renews expired ones.**
     """
-    # Use the token from the header for validation
+    # 1. Validate the incoming refresh token from the header
     payload = await services.validate_token(x_refresh_token)
     
-    # Ensure the token type is 'refresh'
     if payload.get("type") != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid refresh token type")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token type")
 
-    # Retrieve the user associated with the token's subject (email)
+    # 2. Retrieve the user associated with the token's subject (email)
     user = await user_crud.get_user_by_email(db, payload["sub"])
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # For a refresh endpoint, it's a common security practice to generate
-    # *both* a new access token and a new refresh token to ensure rolling token security.
-    # This prevents an old refresh token from being used indefinitely.
-    tokens = await services.create_tokens(user.id, user.email)
-    
-    # Save the new tokens, which will overwrite the old ones in the database
-    await user_crud.save_tokens(db, user.id, tokens)
-    
-    return tokens
+    # 3. Fetch the existing token record for this user from the database
+    existing_token_record_result = await db.execute(select(Token).filter_by(user_id=user.id))
+    existing_token_record = existing_token_record_result.scalars().first()
 
+    # Error handling: If no token record exists for the user, or the provided refresh token
+    # doesn't match the one stored in the DB, it's an invalid state.
+    if not existing_token_record or existing_token_record.refresh_token != x_refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or revoked refresh token")
+
+    current_time = datetime.now(timezone.utc) # Current time, UTC-aware
+
+    # Initialize variables for the tokens to be returned
+    # Start with the existing tokens from the database
+    access_token_str = existing_token_record.access_token
+    refresh_token_str = existing_token_record.refresh_token
+    access_token_expiry_dt = ensure_utc_aware(existing_token_record.access_token_expiry)
+    refresh_token_expiry_dt = ensure_utc_aware(existing_token_record.refresh_token_expiry)
+
+    token_renewed = False # Flag to track if any token was renewed
+
+    # Check if access token is expired and needs renewal
+    if access_token_expiry_dt <= current_time:
+        access_token_str, access_token_expiry_dt = await services.create_access_token_pair(user.id, user.email)
+        existing_token_record.access_token = access_token_str
+        existing_token_record.access_token_expiry = access_token_expiry_dt
+        token_renewed = True
+    
+    # Check if refresh token is expired and needs renewal
+    # Note: If the refresh token itself is expired, we typically generate a *new* one
+    # to maintain rolling refresh token security.
+    if refresh_token_expiry_dt <= current_time:
+        refresh_token_str, refresh_token_expiry_dt = await services.create_refresh_token_pair(user.id, user.email)
+        existing_token_record.refresh_token = refresh_token_str
+        existing_token_record.refresh_token_expiry = refresh_token_expiry_dt
+        token_renewed = True
+    
+    # Commit changes to the database only if at least one token was renewed
+    if token_renewed:
+        await db.commit()
+        await db.refresh(existing_token_record) # Refresh to ensure latest state from DB
+
+    # Construct the response dictionary with the current (potentially renewed) tokens
+    tokens_to_return = {
+        "access_token": access_token_str,
+        "refresh_token": refresh_token_str,
+        "access_token_expires": access_token_expiry_dt.isoformat(),
+        "refresh_token_expires": refresh_token_expiry_dt.isoformat()
+    }
+    
+    return tokens_to_return
 
 # === Reset Password Request ===
 @router.post("/reset-password")
