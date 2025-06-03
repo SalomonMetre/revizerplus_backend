@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-# Removed OAuth2PasswordRequestForm as we're using a custom schema
 from datetime import datetime, timezone
+from sqlalchemy.future import select # <--- ADD THIS IMPORT
 
 from db.session import get_db
-from auth import schemas, services # Ensure schemas is imported to access LoginSchema
+from auth import schemas, services
 from users import crud as user_crud
 from core.security import hash_password, verify_password
 from utils.dependencies import get_current_user
-from auth.models import User, Token # Ensure Token model is imported
+from auth.models import User, Token
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -44,18 +44,17 @@ async def verify_account(data: schemas.OTPVerifySchema, db: AsyncSession = Depen
     if await services.verify_otp(data.email, data.otp):
         await user_crud.mark_user_verified(db, user.id)
         tokens = await services.create_tokens(user.id, user.email)
-        await user_crud.save_tokens(db, user.id, tokens) # This will now update or create
+        await user_crud.save_tokens(db, user.id, tokens)
         return tokens
     raise HTTPException(status_code=400, detail="Invalid OTP")
 
 # === Login ===
 @router.post("/login")
-async def login(login_data: schemas.LoginSchema, db: AsyncSession = Depends(get_db)): # Changed to LoginSchema
+async def login(login_data: schemas.LoginSchema, db: AsyncSession = Depends(get_db)):
     """
     Authenticates a user with email and password, and provides tokens.
     Tokens are renewed only if expired.
     """
-    # Use login_data.email instead of form_data.username
     user = await user_crud.get_user_by_email(db, login_data.email)
     if not user or not verify_password(login_data.password, user.password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
@@ -88,12 +87,12 @@ async def login(login_data: schemas.LoginSchema, db: AsyncSession = Depends(get_
         else:
             # At least one token is expired, generate new ones
             new_tokens = await services.create_tokens(user.id, user.email)
-            await user_crud.save_tokens(db, user.id, new_tokens) # This will now update existing
+            await user_crud.save_tokens(db, user.id, new_tokens)
             tokens_to_return = new_tokens
     else:
         # No existing tokens, generate new ones
         new_tokens = await services.create_tokens(user.id, user.email)
-        await user_crud.save_tokens(db, user.id, new_tokens) # This will create a new record
+        await user_crud.save_tokens(db, user.id, new_tokens)
         tokens_to_return = new_tokens
     
     return tokens_to_return
@@ -121,7 +120,6 @@ async def refresh_token(data: schemas.RefreshTokenSchema, db: AsyncSession = Dep
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # In a refresh scenario, we always generate new tokens if the refresh token itself is valid
     tokens = await services.create_tokens(user.id, user.email)
     await user_crud.save_tokens(db, user.id, tokens)
     return tokens
