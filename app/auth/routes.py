@@ -45,7 +45,7 @@ async def verify_account(data: schemas.OTPVerifySchema, db: AsyncSession = Depen
 # === Login ===
 @router.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    user = await user_crud.get_user_by_email(db, form_data.username)
+    user = await user_crud.get_user_by_email(db, form_data.email)
     if not user or not verify_password(form_data.password, user.password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     if not user.otp_confirmed:
