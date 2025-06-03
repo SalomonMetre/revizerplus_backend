@@ -17,7 +17,6 @@ async def create_user(db: AsyncSession, user_data: SignUpSchema, hashed_password
         password=hashed_password,
         phone_no=user_data.phone_no,
         role=user_data.role.value,  # Use .value for Enum
-        username=user_data.email  # Align with auth/routes.py login
     )
     db.add(user)
     await db.commit()
