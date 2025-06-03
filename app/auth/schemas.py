@@ -3,6 +3,7 @@ from annotated_types import Len
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
 from enum import Enum
+from fastapi import Form # Import Form for the as_form method
 
 
 class UserRole(str, Enum):
@@ -82,6 +83,7 @@ class TokenResponse(BaseModel):
         from_attributes = True
 
 
+# Updated UserProfile: Removed access_token and refresh_token
 class UserProfile(BaseModel):
     id: int
     prenom: Optional[str]
@@ -98,8 +100,8 @@ class UserProfile(BaseModel):
     otp_confirmed: bool
     active: bool
     role: UserRole
-    access_token: Optional[str]
-    refresh_token: Optional[str]
+    # Removed access_token: Optional[str]
+    # Removed refresh_token: Optional[str]
     created_at: datetime
     updated_at: datetime
 
@@ -122,3 +124,37 @@ class UpdateUserProfile(BaseModel):
 
     class Config:
         from_attributes = True
+
+    # NEW: as_form class method to allow Pydantic model to be read from form data
+    @classmethod
+    def as_form(
+        cls,
+        prenom: Optional[str] = Form(None),
+        nom: Optional[str] = Form(None),
+        genre: Optional[str] = Form(None),
+        phone_no: Optional[str] = Form(None),
+        pays: Optional[str] = Form(None),
+        # You might need to adjust Form(None) for fields that are required in the form
+        # but optional in the model. For Optional fields, Form(None) is correct.
+        ville: Optional[str] = Form(None),
+        etablissement: Optional[str] = Form(None),
+        profession: Optional[str] = Form(None),
+        filiere: Optional[str] = Form(None),
+        annee: Optional[str] = Form(None),
+        # For Enum fields in Form, you might need to handle conversion if sent as string
+        # For simplicity, assuming string input for now, Pydantic will try to convert.
+        role: Optional[UserRole] = Form(None), 
+    ) -> "UpdateUserProfile":
+        return cls(
+            prenom=prenom,
+            nom=nom,
+            genre=genre,
+            phone_no=phone_no,
+            pays=pays,
+            ville=ville,
+            etablissement=etablissement,
+            profession=profession,
+            filiere=filiere,
+            annee=annee,
+            role=role,
+        )
