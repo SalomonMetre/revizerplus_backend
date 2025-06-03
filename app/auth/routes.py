@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timezone
-from sqlalchemy.future import select
+from datetime import datetime, timezone # Ensure timezone is imported
+from sqlalchemy.future import select # Ensure this import is present for database queries
 
 from db.session import get_db
 from auth import schemas, services
@@ -12,6 +12,20 @@ from auth.models import User, Token
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
+
+# Helper function to ensure a datetime object is UTC-aware
+# This is crucial for comparing datetimes from different sources (e.g., DB and current time)
+def ensure_utc_aware(dt_obj: datetime) -> datetime:
+    """
+    Ensures a datetime object is timezone-aware (UTC).
+    If it's naive, it's assumed to be UTC and made aware.
+    If it's already aware, it's converted to UTC.
+    """
+    if dt_obj.tzinfo is None:
+        # If it's offset-naive, assume it's UTC and make it timezone-aware
+        return dt_obj.replace(tzinfo=timezone.utc)
+    # If it's already timezone-aware, convert it to UTC for consistent comparison
+    return dt_obj.astimezone(timezone.utc)
 
 
 # === Signup ===
@@ -75,7 +89,7 @@ async def login(login_data: schemas.LoginSchema, db: AsyncSession = Depends(get_
     if not user.otp_confirmed:
         raise HTTPException(status_code=403, detail="Email not confirmed")
 
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(timezone.utc) # This is timezone-aware UTC
     
     # Try to fetch existing tokens for the user
     existing_token_record_result = await db.execute(select(Token).filter_by(user_id=user.id))
@@ -88,33 +102,38 @@ async def login(login_data: schemas.LoginSchema, db: AsyncSession = Depends(get_
     refresh_token_expiry_dt = None
 
     if existing_token_record:
-        # Assume existing tokens are the ones to return initially
+        # Get existing token data
         access_token_str = existing_token_record.access_token
         refresh_token_str = existing_token_record.refresh_token
-        access_token_expiry_dt = existing_token_record.access_token_expiry
-        refresh_token_expiry_dt = existing_token_record.refresh_token_expiry
+
+        # Ensure database-retrieved expiry datetimes are UTC-aware for comparison
+        # This is the crucial step to prevent TypeError
+        access_token_expiry_dt = ensure_utc_aware(existing_token_record.access_token_expiry)
+        refresh_token_expiry_dt = ensure_utc_aware(existing_token_record.refresh_token_expiry)
+
+        # Flag to track if any token was renewed
+        token_renewed = False
 
         # Check if existing access token is expired
-        if existing_token_record.access_token_expiry <= current_time:
+        if access_token_expiry_dt <= current_time:
             # Generate new access token
             access_token_str, access_token_expiry_dt = await services.create_access_token_pair(user.id, user.email)
-            # Mark for update in DB
+            # Update existing_token_record with the new, timezone-aware expiry
             existing_token_record.access_token = access_token_str
             existing_token_record.access_token_expiry = access_token_expiry_dt
+            token_renewed = True
         
         # Check if existing refresh token is expired
-        if existing_token_record.refresh_token_expiry <= current_time:
+        if refresh_token_expiry_dt <= current_time:
             # Generate new refresh token
             refresh_token_str, refresh_token_expiry_dt = await services.create_refresh_token_pair(user.id, user.email)
-            # Mark for update in DB
+            # Update existing_token_record with the new, timezone-aware expiry
             existing_token_record.refresh_token = refresh_token_str
             existing_token_record.refresh_token_expiry = refresh_token_expiry_dt
+            token_renewed = True
         
         # Commit any updates to the existing token record if changes were made
-        # This check ensures we only commit if something actually changed
-        # (e.g., if one or both tokens were renewed)
-        if existing_token_record.access_token != access_token_str or \
-           existing_token_record.refresh_token != refresh_token_str:
+        if token_renewed:
             await db.commit()
             await db.refresh(existing_token_record) # Refresh to ensure latest state
 
