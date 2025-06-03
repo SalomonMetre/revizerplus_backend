@@ -34,10 +34,17 @@ async def update_me(
     - Optionally accepts a profile image file.
     - Returns the updated user profile.
     """
+    # Debug print: See what Pydantic model received from form
+    print(f"DEBUG: update_data Pydantic model: {update_data}")
+
     update_dict = update_data.model_dump(exclude_unset=True) # Exclude fields not provided by client
+
+    # Debug print: See what dictionary is passed to CRUD
+    print(f"DEBUG: update_dict for CRUD: {update_dict}")
 
     # Handle image upload if provided
     if image and image.filename:
+        print(f"DEBUG: Image file received: {image.filename}")
         try:
             contents = await image.read()
             # Basic validation for image size (e.g., max 5MB)
@@ -46,8 +53,10 @@ async def update_me(
             
             path = await save_profile_image(contents, current_user.id)
             await user_crud.link_profile_image(db, current_user.id, path)
+            print(f"DEBUG: Profile image linked: {path}")
         except Exception as e:
             # Catch specific image processing errors if possible, e.g., PIL errors
+            print(f"ERROR: Failed to upload profile image: {e}") # Debug print
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to upload profile image: {e}"
@@ -55,24 +64,30 @@ async def update_me(
 
     # Handle profile data update
     if update_dict: # Only proceed if there's data to update
+        print(f"DEBUG: Attempting to update user profile with: {update_dict}")
         try:
             updated_user = await user_crud.update_user_profile(db, current_user.id, update_dict)
             if not updated_user:
                 # This case should ideally not happen if current_user is valid, but good for safety
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for update")
+            print(f"DEBUG: User profile updated successfully for user ID: {current_user.id}")
             return updated_user
         except SQLAlchemyError as e:
             # Catch database-related errors
+            print(f"ERROR: Database error during profile update: {e}") # Debug print
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database error during profile update: {e}"
             )
         except Exception as e:
             # Catch any other unexpected errors during profile update
+            print(f"ERROR: An unexpected error occurred during profile update: {e}") # Debug print
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"An unexpected error occurred during profile update: {e}"
             )
+    else:
+        print("DEBUG: No profile data or image provided for update. Returning current user.")
     
     # If no update_data and no image, return the current user profile (no change)
     return current_user # Or return a success message if no update was performed

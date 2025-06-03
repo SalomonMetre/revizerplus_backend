@@ -1,6 +1,6 @@
 from typing import Optional, Annotated
 from annotated_types import Len
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ValidationError # Added ValidationError
 from datetime import datetime
 from enum import Enum
 from fastapi import Form # Import Form for the as_form method
@@ -83,7 +83,6 @@ class TokenResponse(BaseModel):
         from_attributes = True
 
 
-# Updated UserProfile: Removed access_token and refresh_token
 class UserProfile(BaseModel):
     id: int
     prenom: Optional[str]
@@ -100,8 +99,6 @@ class UserProfile(BaseModel):
     otp_confirmed: bool
     active: bool
     role: UserRole
-    # Removed access_token: Optional[str]
-    # Removed refresh_token: Optional[str]
     created_at: datetime
     updated_at: datetime
 
@@ -120,12 +117,11 @@ class UpdateUserProfile(BaseModel):
     profession: Optional[str] = None
     filiere: Optional[str] = None
     annee: Optional[str] = None
-    role: Optional[UserRole] = None
+    role: Optional[UserRole] = None # Still Optional, but will be converted if provided
 
     class Config:
         from_attributes = True
 
-    # NEW: as_form class method to allow Pydantic model to be read from form data
     @classmethod
     def as_form(
         cls,
@@ -134,17 +130,26 @@ class UpdateUserProfile(BaseModel):
         genre: Optional[str] = Form(None),
         phone_no: Optional[str] = Form(None),
         pays: Optional[str] = Form(None),
-        # You might need to adjust Form(None) for fields that are required in the form
-        # but optional in the model. For Optional fields, Form(None) is correct.
         ville: Optional[str] = Form(None),
         etablissement: Optional[str] = Form(None),
         profession: Optional[str] = Form(None),
         filiere: Optional[str] = Form(None),
         annee: Optional[str] = Form(None),
-        # For Enum fields in Form, you might need to handle conversion if sent as string
-        # For simplicity, assuming string input for now, Pydantic will try to convert.
-        role: Optional[UserRole] = Form(None), 
+        # Explicitly handle role conversion from string to UserRole Enum
+        role: Optional[str] = Form(None), 
     ) -> "UpdateUserProfile":
+        # Convert role string to UserRole Enum if not None
+        user_role_enum = None
+        if role is not None:
+            try:
+                user_role_enum = UserRole(role) # Attempt to convert string to Enum
+            except ValueError:
+                # Handle invalid role string gracefully, e.g., raise an error or log
+                # For now, we'll let Pydantic's validation handle it later,
+                # or you could raise HTTPException here for immediate feedback.
+                print(f"Warning: Invalid role '{role}' provided in form data.")
+                user_role_enum = None # Or raise HTTPException(400, "Invalid role")
+
         return cls(
             prenom=prenom,
             nom=nom,
@@ -156,5 +161,5 @@ class UpdateUserProfile(BaseModel):
             profession=profession,
             filiere=filiere,
             annee=annee,
-            role=role,
+            role=user_role_enum, # Pass the converted Enum or None
         )
