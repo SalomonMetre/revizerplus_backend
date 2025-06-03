@@ -18,15 +18,15 @@ class User(Base):
     profession = Column(String(100), nullable=True)
     filiere = Column(String(100), nullable=True)
     annee = Column(String(50), nullable=True)
+    # Updated 'role' column with default="student":
+    role = Column(String(50), nullable=False, default="student")
     password = Column(String(255), nullable=False)
     otp_confirmed = Column(Boolean, default=False)
     active = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
-
     tokens = relationship("Token", back_populates="user", cascade="all, delete")
     profile_image = relationship("ProfileImage", back_populates="user", uselist=False, cascade="all, delete")
-
 
 class Token(Base):
     __tablename__ = "tokens"
