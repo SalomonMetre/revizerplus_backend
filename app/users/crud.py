@@ -2,8 +2,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
-from auth.models import User, Token, ProfileImage
-from auth.schemas import SignUpSchema # Assuming SignUpSchema is here
+from auth.models import User, Token, ProfileImage # Ensure ProfileImage is imported
+from auth.schemas import SignUpSchema
 from datetime import datetime, timezone
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User:
@@ -77,10 +77,8 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
         for key, value in update_data.items():
             if key in allowed_fields:
                 if key == "role":
-                    # Only update role if a non-None UserRole value is provided
                     if value is not None:
                         setattr(user, key, value.value)
-                    # If value is None, we do nothing, preserving the existing role
                 else:
                     setattr(user, key, value)
         await db.commit()
@@ -88,11 +86,21 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
     return user
 
 async def link_profile_image(db: AsyncSession, user_id: int, filename: str):
+    # Delete existing profile image for the user
     await db.execute(delete(ProfileImage).where(ProfileImage.user_id == user_id))
     
+    # Create new profile image record
     profile_image = ProfileImage(
         user_id=user_id,
-        path=filename
+        path=filename  # Store filename (e.g., uuid4().hex + ext)
     )
     db.add(profile_image)
     await db.commit()
+
+# NEW: Function to get profile image record by user ID
+async def get_profile_image_by_user_id(db: AsyncSession, user_id: int) -> ProfileImage:
+    """
+    Retrieves the ProfileImage record for a given user ID.
+    """
+    result = await db.execute(select(ProfileImage).filter_by(user_id=user_id))
+    return result.scalars().first()

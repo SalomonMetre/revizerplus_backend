@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError # Import for database errors
 
@@ -7,7 +8,7 @@ from auth import schemas
 from users import crud as user_crud
 from utils.dependencies import get_current_user
 from auth.models import User # Ensure User model is imported
-from utils.image_upload import save_profile_image # Ensure this is imported
+from utils.image_upload import save_profile_image, UPLOAD_DIR # Ensure this is imported
 
 router = APIRouter(prefix="/users", tags=["User"])
 
@@ -91,3 +92,46 @@ async def update_me(
     
     # If no update_data and no image, return the current user profile (no change)
     return current_user # Or return a success message if no update was performed
+
+
+# === Get My Profile Image ===
+@router.get("/me/profile-image")
+async def get_my_profile_image(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves the profile image of the current authenticated user.
+    Requires a valid access token.
+    """
+    # 1. Get the ProfileImage record from the database
+    profile_image_record = await user_crud.get_profile_image_by_user_id(db, current_user.id)
+
+    if not profile_image_record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile image not found for this user.")
+
+    # 2. Construct the full absolute path to the image file
+    # UPLOAD_DIR is imported from utils.image_upload
+    full_image_path = UPLOAD_DIR / profile_image_record.path
+
+    # 3. Check if the file actually exists on the file system
+    if not full_image_path.is_file():
+        # Log this discrepancy for debugging, as the DB record exists but file doesn't
+        print(f"WARNING: Profile image record exists for user {current_user.id} "
+              f"at path '{profile_image_record.path}' but file '{full_image_path}' not found on disk.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile image file not found on server.")
+
+    # 4. Determine media type for FileResponse (optional but good practice)
+    # You might want a more robust way to determine content_type based on file extension
+    # For now, a simple guess:
+    content_type = "image/jpeg" # Default
+    if full_image_path.suffix.lower() == ".png":
+        content_type = "image/png"
+    elif full_image_path.suffix.lower() == ".gif":
+        content_type = "image/gif"
+    elif full_image_path.suffix.lower() == ".webp":
+        content_type = "image/webp"
+    # Add more as needed
+
+    # 5. Return the image file using FileResponse
+    return FileResponse(full_image_path, media_type=content_type)
