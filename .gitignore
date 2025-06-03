@@ -1,17 +1,21 @@
-# Ignore everything
+# Ignore everything by default
 *
 
-# Allow the src directory
-!src/
+# --- Exceptions for files/directories to include ---
 
-# Allow all contents under src/app
-!src/app/
-!src/app/**
+# Allow the 'app' directory and its contents
+!/app/
+!/app/**
 
-# Allow environment file and README
-!environment.yml
-!README.md
+# Allow specific files in the root of the repo
+!/environment.yml
+!/README.md
 
-#ignore .pyc files
+# --- Specific files/patterns to ignore ---
+
+# Ignore .env file within the 'app' directory
+/app/.env
+
+# Ignore Python compiled files
 *.pyc
 __pycache__/
