@@ -28,18 +28,48 @@ async def get_current_user(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         email: str = payload.get("sub")
         if email is None:
-            raise credentials_exception
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="JWT token missing 'sub' claim",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        print(f"DEBUG: JWT decoded successfully, email: {email}")
         
         # Validate token against Token table
         user = await user_crud.validate_access_token(db, token)
         if not user:
-            raise credentials_exception
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token not found or expired in database",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
             
+        print(f"DEBUG: Token validated in database, user ID: {user.id}, email: {user.email}")
+        
         # Verify user matches email and is active
-        if user.email != email or not user.active:
-            raise credentials_exception
+        if user.email != email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="JWT email does not match user email",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
             
+        if not user.active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+        print(f"DEBUG: User verified, active: {user.active}")
+        
         return user
         
-    except JWTError:
-        raise credentials_exception
+    except JWTError as e:
+        print(f"DEBUG: JWT decoding failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid JWT token: {str(e)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
