@@ -308,7 +308,7 @@ async def reset_password(
     hashed_password = services.hash_password(data.new_password)
 
     # Update the password in the database
-    await crud.update_password(db, email, hashed_password)
+    await user_crud.update_password(db, email, hashed_password)
 
     # Clean up OTP from Redis
     await services.delete_otp_with_reverse_cleanup(email, data.otp)
