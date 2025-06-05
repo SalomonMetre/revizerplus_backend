@@ -20,7 +20,8 @@ async def get_user_profile(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Retrieves the authenticated user's profile information, including a compressed profile image as base64 if available.
+    Retrieves the authenticated user's profile information,
+    including a compressed profile image as base64 if available.
     """
     print(f"DEBUG: Handling GET request for user ID: {current_user.id}")
     user_profile = current_user
@@ -30,49 +31,43 @@ async def get_user_profile(
         full_image_path = UPLOAD_DIR / profile_image_record.path
         if full_image_path.is_file():
             try:
-                # Open and compress image
                 with Image.open(full_image_path) as img:
-                    # Resize if needed (e.g., max width 256px)
+                    # Determine appropriate resample method
+                    try:
+                        resample = Image.Resampling.LANCZOS
+                    except AttributeError:
+                        resample = Image.ANTIALIAS  # Backward compatibility
+
+                    # Resize if width exceeds max width
                     max_width = 256
                     if img.width > max_width:
-                        w_percent = (max_width / float(img.width))
-                        h_size = int((float(img.height) * float(w_percent)))
-                        img = img.resize((max_width, h_size), Image.ANTIALIAS)
+                        w_percent = max_width / float(img.width)
+                        h_size = int((float(img.height) * w_percent))
+                        img = img.resize((max_width, h_size), resample)
 
-                    # Compress image (adjust quality as needed)
+                    # Convert to RGB to avoid format issues (especially with JPEG)
+                    img = img.convert("RGB")
+
+                    # Compress and encode image
                     buffer = BytesIO()
-                    format = img.format if img.format else "JPEG"
-                    if format.upper() == "JPEG":
-                        img.save(buffer, format="JPEG", quality=70, optimize=True)
-                        mime_type = "image/jpeg"
-                    elif format.upper() == "PNG":
-                        img.save(buffer, format="PNG", optimize=True)
-                        mime_type = "image/png"
-                    elif format.upper() == "WEBP":
-                        img.save(buffer, format="WEBP", quality=70, optimize=True)
-                        mime_type = "image/webp"
-                    else:
-                        # fallback
-                        img.save(buffer, format="JPEG", quality=70, optimize=True)
-                        mime_type = "image/jpeg"
-
+                    img.save(buffer, format="JPEG", optimize=True, quality=70)
                     buffer.seek(0)
-                    compressed_data = buffer.read()
-                    encoded_image = base64.b64encode(compressed_data).decode("utf-8")
+                    encoded_image = base64.b64encode(buffer.read()).decode("utf-8")
+                    mime_type = "image/jpeg"
 
-                    # Attach image
                     user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
 
             except Exception as e:
                 print(f"WARNING: Failed to read or compress profile image at '{full_image_path}': {e}")
                 user_profile.profile_picture = None
         else:
-            print(f"WARNING: Profile image record exists but file '{full_image_path}' not found.")
+            print(f"WARNING: Profile image file not found at: {full_image_path}")
             user_profile.profile_picture = None
     else:
         user_profile.profile_picture = None
 
     return user_profile
+
 
 
 @router.put("/me", response_model=schemas.UserProfile)
