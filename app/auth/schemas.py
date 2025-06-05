@@ -1,6 +1,6 @@
 from typing import Optional, Annotated
 from annotated_types import Len
-from pydantic import BaseModel, EmailStr, Field, ValidationError, validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 from enum import Enum
 from fastapi import Form
@@ -52,9 +52,10 @@ class ChangePasswordSchema(BaseModel):
     new_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
     confirm_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
 
-    @validator("confirm_password")
-    def passwords_match(cls, v, values, **kwargs):
-        if "new_password" in values and v != values["new_password"]:
+    @field_validator("confirm_password")
+    @classmethod
+    def passwords_match(cls, v, values):
+        if "new_password" in values.data and v != values.data["new_password"]:
             raise ValueError("confirm_password must match new_password")
         return v
 
@@ -67,9 +68,10 @@ class ChangePasswordAuthenticatedSchema(BaseModel):
     new_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
     confirm_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
 
-    @validator("confirm_password")
-    def passwords_match(cls, v, values, **kwargs):
-        if "new_password" in values and v != values["new_password"]:
+    @field_validator("confirm_password")
+    @classmethod
+    def passwords_match(cls, v, values):
+        if "new_password" in values.data and v != values.data["new_password"]:
             raise ValueError("confirm_password must match new_password")
         return v
 
@@ -123,6 +125,7 @@ class UserProfile(BaseModel):
     role: UserRole
     created_at: datetime
     updated_at: datetime
+    profile_picture: Optional[str] = Field(None, description="Base64-encoded profile image")
 
     class Config:
         from_attributes = True

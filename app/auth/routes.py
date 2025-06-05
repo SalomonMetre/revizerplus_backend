@@ -349,22 +349,3 @@ async def change_password(
         "msg": "Password changed successfully. Please use your new password for future logins.",
         "tokens": tokens
     }
-
-# === Legacy Reset Password Request (kept for backward compatibility) ===
-@router.post("/reset-password-legacy")
-async def reset_password_request(data: schemas.EmailSchema, db: AsyncSession = Depends(get_db)):
-    """
-    Legacy endpoint - use /init-reset-password instead.
-    Initiates a password reset process.
-    - Checks if the user exists.
-    - Generates and sends an OTP to the user's email for password reset verification.
-    """
-    user = await user_crud.get_user_by_email(db, data.email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    otp = services.generate_otp()
-    await services.save_otp_to_redis(user.email, otp)
-    await services.send_otp_email(user.email, otp)
-
-    return {"msg": "OTP sent to your email for password reset."}
