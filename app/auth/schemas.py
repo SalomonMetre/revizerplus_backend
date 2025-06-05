@@ -62,6 +62,21 @@ class ChangePasswordSchema(BaseModel):
         from_attributes = True
 
 
+class ChangePasswordAuthenticatedSchema(BaseModel):
+    current_password: Annotated[str, Len(min_length=6)] = Field(..., example="currentpassword")
+    new_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
+    confirm_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
+
+    @validator("confirm_password")
+    def passwords_match(cls, v, values, **kwargs):
+        if "new_password" in values and v != values["new_password"]:
+            raise ValueError("confirm_password must match new_password")
+        return v
+
+    class Config:
+        from_attributes = True
+
+
 class RefreshTokenSchema(BaseModel):
     refresh_token: str = Field(..., example="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
 
