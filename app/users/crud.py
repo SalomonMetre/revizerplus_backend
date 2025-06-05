@@ -1,16 +1,31 @@
-# users/crud.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
-from auth.models import User, Token, ProfileImage # Ensure ProfileImage is imported
+from auth.models import User, Token, ProfileImage
 from auth.schemas import SignUpSchema
 from datetime import datetime, timezone
 
+
 async def get_user_by_email(db: AsyncSession, email: str) -> User:
+    """
+    Retrieves a user by their email address.
+    """
     result = await db.execute(select(User).filter_by(email=email))
     return result.scalars().first()
 
+
+async def check_user_exists_by_email(db: AsyncSession, email: str) -> bool:
+    """
+    Checks if a user exists by their email address.
+    """
+    user = await get_user_by_email(db, email)
+    return user is not None
+
+
 async def create_user(db: AsyncSession, user_data: SignUpSchema, hashed_password: str) -> User:
+    """
+    Creates a new user with the provided data and hashed password.
+    """
     user = User(
         prenom=user_data.prenom,
         nom=user_data.nom,
@@ -24,21 +39,36 @@ async def create_user(db: AsyncSession, user_data: SignUpSchema, hashed_password
     await db.refresh(user)
     return user
 
+
 async def mark_user_verified(db: AsyncSession, user_id: int):
+    """
+    Marks a user as verified by setting otp_confirmed to True.
+    """
     user = await db.get(User, user_id)
     if user:
         user.otp_confirmed = True
         await db.commit()
         await db.refresh(user)
 
-async def update_password(db: AsyncSession, email: str, hashed_password: str):
+
+async def update_password(db: AsyncSession, email: str, hashed_password: str) -> bool:
+    """
+    Updates the user's password given their email and a hashed password.
+    Returns True if the update was successful, False if the user was not found.
+    """
     user = await get_user_by_email(db, email)
     if user:
         user.password = hashed_password
         await db.commit()
         await db.refresh(user)
+        return True
+    return False
+
 
 async def save_tokens(db: AsyncSession, user_id: int, tokens: dict):
+    """
+    Saves or updates access and refresh tokens for a user.
+    """
     existing_token_record_result = await db.execute(select(Token).filter_by(user_id=user_id))
     token_obj = existing_token_record_result.scalars().first()
 
@@ -63,11 +93,19 @@ async def save_tokens(db: AsyncSession, user_id: int, tokens: dict):
     await db.commit()
     await db.refresh(token_obj)
 
+
 async def revoke_tokens(db: AsyncSession, user_id: int):
+    """
+    Revokes all tokens for a user by deleting them from the database.
+    """
     await db.execute(delete(Token).where(Token.user_id == user_id))
     await db.commit()
 
+
 async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict) -> User:
+    """
+    Updates a user's profile with the provided data.
+    """
     user = await db.get(User, user_id)
     if user:
         allowed_fields = {
@@ -85,19 +123,21 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
         await db.refresh(user)
     return user
 
+
 async def link_profile_image(db: AsyncSession, user_id: int, filename: str):
-    # Delete existing profile image for the user
+    """
+    Links a profile image to a user, replacing any existing image.
+    """
     await db.execute(delete(ProfileImage).where(ProfileImage.user_id == user_id))
     
-    # Create new profile image record
     profile_image = ProfileImage(
         user_id=user_id,
-        path=filename  # Store filename (e.g., uuid4().hex + ext)
+        path=filename
     )
     db.add(profile_image)
     await db.commit()
 
-# NEW: Function to get profile image record by user ID
+
 async def get_profile_image_by_user_id(db: AsyncSession, user_id: int) -> ProfileImage:
     """
     Retrieves the ProfileImage record for a given user ID.
