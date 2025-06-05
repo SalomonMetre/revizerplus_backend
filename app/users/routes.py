@@ -18,40 +18,54 @@ async def get_user_profile(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Retrieves the authenticated user's profile information, including the profile image as base64 if available.
+    Retrieves the authenticated user's profile information, including a compressed profile image as base64 if available.
     """
     print(f"DEBUG: Handling GET request for user ID: {current_user.id}")
-
-    # Prepare the response
     user_profile = current_user
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, current_user.id)
 
-    # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
         full_image_path = UPLOAD_DIR / profile_image_record.path
         if full_image_path.is_file():
             try:
-                with open(full_image_path, "rb") as image_file:
-                    image_data = image_file.read()
-                    encoded_image = base64.b64encode(image_data).decode("utf-8")
-                
-                # Determine MIME type based on file extension
-                mime_type = "image/jpeg"  # Default
-                if full_image_path.suffix.lower() == ".png":
-                    mime_type = "image/png"
-                elif full_image_path.suffix.lower() == ".gif":
-                    mime_type = "image/gif"
-                elif full_image_path.suffix.lower() == ".webp":
-                    mime_type = "image/webp"
-                
-                # Include MIME type in base64 string
-                user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
+                # Open and compress image
+                with Image.open(full_image_path) as img:
+                    # Resize if needed (e.g., max width 256px)
+                    max_width = 256
+                    if img.width > max_width:
+                        w_percent = (max_width / float(img.width))
+                        h_size = int((float(img.height) * float(w_percent)))
+                        img = img.resize((max_width, h_size), Image.ANTIALIAS)
+
+                    # Compress image (adjust quality as needed)
+                    buffer = BytesIO()
+                    format = img.format if img.format else "JPEG"
+                    if format.upper() == "JPEG":
+                        img.save(buffer, format="JPEG", quality=70, optimize=True)
+                        mime_type = "image/jpeg"
+                    elif format.upper() == "PNG":
+                        img.save(buffer, format="PNG", optimize=True)
+                        mime_type = "image/png"
+                    elif format.upper() == "WEBP":
+                        img.save(buffer, format="WEBP", quality=70, optimize=True)
+                        mime_type = "image/webp"
+                    else:
+                        # fallback
+                        img.save(buffer, format="JPEG", quality=70, optimize=True)
+                        mime_type = "image/jpeg"
+
+                    buffer.seek(0)
+                    compressed_data = buffer.read()
+                    encoded_image = base64.b64encode(compressed_data).decode("utf-8")
+
+                    # Attach image
+                    user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
+
             except Exception as e:
-                print(f"WARNING: Failed to read or encode profile image at '{full_image_path}': {e}")
+                print(f"WARNING: Failed to read or compress profile image at '{full_image_path}': {e}")
                 user_profile.profile_picture = None
         else:
-            print(f"WARNING: Profile image record exists for user {current_user.id} "
-                  f"at path '{profile_image_record.path}' but file '{full_image_path}' not found on disk.")
+            print(f"WARNING: Profile image record exists but file '{full_image_path}' not found.")
             user_profile.profile_picture = None
     else:
         user_profile.profile_picture = None
