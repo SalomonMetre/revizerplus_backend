@@ -283,38 +283,37 @@ async def check_reset_password_validity(otp: str = Query(..., description="OTP t
 # === Reset Password ===
 @router.post("/reset-password")
 async def reset_password(
-    data: schemas.ResetPasswordSchema, 
-    otp: str = Query(..., description="OTP for password reset verification"),
+    data: schemas.ChangePasswordSchema,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Resets a user's password after successful OTP verification.
-    - Verifies the provided OTP and retrieves the associated user.
-    - Validates that password and confirmPassword match.
-    - Hashes the new password and updates it in the database.
+    Resets a user's password using an OTP.
+    - Validates the OTP and retrieves the email if not provided.
+    - Updates the password in the database.
+    - Cleans up the OTP from Redis after successful reset.
     """
-    # Validate that password and confirmPassword match
-    if data.password != data.confirmPassword:
-        raise HTTPException(status_code=400, detail="Password and confirm password do not match")
-    
-    # Get user email associated with the OTP and verify OTP
-    user_email = await services.get_email_by_otp(otp)
-    if not user_email:
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
-    
-    # Verify the OTP is still valid
-    if not await services.verify_otp(user_email, otp):
+    # If email is not provided, retrieve it using the OTP
+    email = data.email
+    if not email:
+        email = await services.get_email_by_otp_efficient(data.otp)
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    # Verify OTP validity
+    if not await services.check_otp_validity_efficient(data.otp):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
-    # Hash the new password and update it
-    hashed_password = hash_password(data.password)
-    await user_crud.update_password(db, user_email, hashed_password)
-    
-    # Clean up the OTP from Redis after successful password reset
-    await services.delete_otp_from_redis(user_email)
-    
-    return {"msg": "Password reset successfully. Please login with your new password."}
+    # Validate that new_password and confirm_password match (handled by schema validator)
+    # Hash the new password
+    hashed_password = services.hash_password(data.new_password)
 
+    # Update the password in the database
+    await crud.update_password(db, email, hashed_password)
+
+    # Clean up OTP from Redis
+    await services.delete_otp_with_reverse_cleanup(email, data.otp)
+
+    return {"msg": "Password reset successfully. Please use your new password to log in."}
 
 # === Change Password (for logged-in users) ===
 @router.post("/change-password")
