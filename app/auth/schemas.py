@@ -1,9 +1,9 @@
 from typing import Optional, Annotated
 from annotated_types import Len
-from pydantic import BaseModel, EmailStr, Field, ValidationError # Added ValidationError
+from pydantic import BaseModel, EmailStr, Field, ValidationError, validator
 from datetime import datetime
 from enum import Enum
-from fastapi import Form # Import Form for the as_form method
+from fastapi import Form
 
 
 class UserRole(str, Enum):
@@ -32,7 +32,7 @@ class LoginSchema(BaseModel):
 
 
 class OTPVerifySchema(BaseModel):
-    email: EmailStr = Field(..., example="user@example.com")
+    email: Optional[EmailStr] = Field(None, example="user@example.com")
     otp: Annotated[str, Len(min_length=6, max_length=6)] = Field(..., example="123456")
 
     class Config:
@@ -47,9 +47,16 @@ class EmailSchema(BaseModel):
 
 
 class ChangePasswordSchema(BaseModel):
-    email: EmailStr = Field(..., example="user@example.com")
+    email: Optional[EmailStr] = Field(None, example="user@example.com")
     otp: Annotated[str, Len(min_length=6, max_length=6)] = Field(..., example="123456")
     new_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
+    confirm_password: Annotated[str, Len(min_length=6)] = Field(..., example="newstrongpassword")
+
+    @validator("confirm_password")
+    def passwords_match(cls, v, values, **kwargs):
+        if "new_password" in values and v != values["new_password"]:
+            raise ValueError("confirm_password must match new_password")
+        return v
 
     class Config:
         from_attributes = True
@@ -117,7 +124,7 @@ class UpdateUserProfile(BaseModel):
     profession: Optional[str] = None
     filiere: Optional[str] = None
     annee: Optional[str] = None
-    role: Optional[UserRole] = None # Still Optional, but will be converted if provided
+    role: Optional[UserRole] = None
 
     class Config:
         from_attributes = True
@@ -135,20 +142,15 @@ class UpdateUserProfile(BaseModel):
         profession: Optional[str] = Form(None),
         filiere: Optional[str] = Form(None),
         annee: Optional[str] = Form(None),
-        # Explicitly handle role conversion from string to UserRole Enum
-        role: Optional[str] = Form(None), 
+        role: Optional[str] = Form(None),
     ) -> "UpdateUserProfile":
-        # Convert role string to UserRole Enum if not None
         user_role_enum = None
         if role is not None:
             try:
-                user_role_enum = UserRole(role) # Attempt to convert string to Enum
+                user_role_enum = UserRole(role)
             except ValueError:
-                # Handle invalid role string gracefully, e.g., raise an error or log
-                # For now, we'll let Pydantic's validation handle it later,
-                # or you could raise HTTPException here for immediate feedback.
                 print(f"Warning: Invalid role '{role}' provided in form data.")
-                user_role_enum = None # Or raise HTTPException(400, "Invalid role")
+                user_role_enum = None
 
         return cls(
             prenom=prenom,
@@ -161,5 +163,5 @@ class UpdateUserProfile(BaseModel):
             profession=profession,
             filiere=filiere,
             annee=annee,
-            role=user_role_enum, # Pass the converted Enum or None
+            role=user_role_enum,
         )

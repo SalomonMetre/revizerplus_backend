@@ -331,15 +331,15 @@ async def change_password(
     - Optionally returns new tokens after password change.
     """
     # Verify current password
-    if not verify_password(data.currentPassword, current_user.password):
+    if not verify_password(data.current_password, current_user.password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     
-    # Validate that new password and confirmPassword match
-    if data.password != data.confirmPassword:
+    # Validate that new password and confirmPassword match (handled by schema validator, but kept for explicitness)
+    if data.new_password != data.confirm_password:
         raise HTTPException(status_code=400, detail="New password and confirm password do not match")
     
     # Hash the new password and update it
-    hashed_password = hash_password(data.password)
+    hashed_password = hash_password(data.new_password)
     await user_crud.update_password(db, current_user.email, hashed_password)
     
     # Optionally generate new tokens after password change for security
@@ -350,7 +350,6 @@ async def change_password(
         "msg": "Password changed successfully. Please use your new password for future logins.",
         "tokens": tokens
     }
-
 
 # === Legacy Reset Password Request (kept for backward compatibility) ===
 @router.post("/reset-password-legacy")
