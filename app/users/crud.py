@@ -29,10 +29,15 @@ async def validate_access_token(db: AsyncSession, access_token: str) -> User:
     """
     result = await db.execute(select(Token).filter_by(access_token=access_token))
     token = result.scalars().first()
-    if token and token.access_token_expiry > datetime.now(timezone.utc):
-        user = await db.get(User, token.user_id)
-        if user and user.active:
-            return user
+    if token:
+        # Ensure expiry is timezone-aware
+        expiry = token.access_token_expiry
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry > datetime.now(timezone.utc):
+            user = await db.get(User, token.user_id)
+            if user and user.active:
+                return user
     return None
 
 
@@ -43,10 +48,15 @@ async def validate_refresh_token(db: AsyncSession, refresh_token: str, user_id: 
     """
     result = await db.execute(select(Token).filter_by(refresh_token=refresh_token, user_id=user_id))
     token = result.scalars().first()
-    if token and token.refresh_token_expiry > datetime.now(timezone.utc):
-        user = await db.get(User, token.user_id)
-        if user and user.active:
-            return user
+    if token:
+        # Ensure expiry is timezone-aware
+        expiry = token.refresh_token_expiry
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry > datetime.now(timezone.utc):
+            user = await db.get(User, token.user_id)
+            if user and user.active:
+                return user
     return None
 
 
@@ -95,13 +105,14 @@ async def update_password(db: AsyncSession, email: str, hashed_password: str) ->
 
 async def save_tokens(db: AsyncSession, user_id: int, tokens: dict):
     """
-    Saves or updates access and refresh tokens for a user.
+    Saves or updates access and refresh tokens for a user with timezone-aware datetimes.
     """
     existing_token_record_result = await db.execute(select(Token).filter_by(user_id=user_id))
     token_obj = existing_token_record_result.scalars().first()
 
-    access_token_expiry_dt = datetime.fromisoformat(tokens["access_token_expires"])
-    refresh_token_expiry_dt = datetime.fromisoformat(tokens["refresh_token_expires"])
+    # Parse ISO timestamps and ensure UTC timezone
+    access_token_expiry_dt = datetime.fromisoformat(tokens["access_token_expires"]).replace(tzinfo=timezone.utc)
+    refresh_token_expiry_dt = datetime.fromisoformat(tokens["refresh_token_expires"]).replace(tzinfo=timezone.utc)
 
     if token_obj:
         token_obj.access_token = tokens["access_token"]
@@ -114,7 +125,7 @@ async def save_tokens(db: AsyncSession, user_id: int, tokens: dict):
             access_token=tokens["access_token"],
             refresh_token=tokens["refresh_token"],
             access_token_expiry=access_token_expiry_dt,
-            refresh_token_expiry=refresh_token_expires_dt
+            refresh_token_expiry=refresh_token_expiry_dt
         )
         db.add(token_obj)
     
