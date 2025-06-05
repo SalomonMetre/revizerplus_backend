@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Header, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone # Ensure timezone is imported
 from sqlalchemy.future import select # Ensure this import is present for database queries
@@ -247,9 +247,9 @@ async def refresh_token(
     
     return tokens_to_return
 
-# === Reset Password Request ===
-@router.post("/reset-password")
-async def reset_password_request(data: schemas.EmailSchema, db: AsyncSession = Depends(get_db)):
+# === Initialize Password Reset ===
+@router.post("/init-reset-password")
+async def init_reset_password(data: schemas.EmailSchema, db: AsyncSession = Depends(get_db)):
     """
     Initiates a password reset process.
     - Checks if the user exists.
@@ -266,18 +266,107 @@ async def reset_password_request(data: schemas.EmailSchema, db: AsyncSession = D
     return {"msg": "OTP sent to your email for password reset."}
 
 
-# === Change Password ===
-@router.post("/change-password")
-async def change_password(data: schemas.ChangePasswordSchema, db: AsyncSession = Depends(get_db)):
+# === Check Reset Password OTP Validity ===
+@router.get("/check-reset-password-validity")
+async def check_reset_password_validity(otp: str = Query(..., description="OTP to validate")):
     """
-    Changes a user's password after successful OTP verification.
-    - Verifies the provided OTP.
-    - Hashes the new password.
-    - Updates the user's password in the database.
+    Checks if the provided OTP is valid for password reset.
+    Returns a boolean indicating OTP validity.
     """
-    if not await services.verify_otp(data.email, data.otp):
-        raise HTTPException(status_code=400, detail="Invalid OTP")
+    # Since we need to check OTP validity without knowing the email,
+    # we'll need to modify the verify_otp function or create a new one
+    # For now, assuming we have a function that can check OTP validity by OTP code
+    is_valid = await services.check_otp_validity(otp)
+    return {"valid": is_valid}
 
-    hashed_password = hash_password(data.new_password)
-    await user_crud.update_password(db, data.email, hashed_password)
-    return {"msg": "Password changed successfully."}
+
+# === Reset Password ===
+@router.post("/reset-password")
+async def reset_password(
+    data: schemas.ResetPasswordSchema, 
+    otp: str = Query(..., description="OTP for password reset verification"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resets a user's password after successful OTP verification.
+    - Verifies the provided OTP and retrieves the associated user.
+    - Validates that password and confirmPassword match.
+    - Hashes the new password and updates it in the database.
+    """
+    # Validate that password and confirmPassword match
+    if data.password != data.confirmPassword:
+        raise HTTPException(status_code=400, detail="Password and confirm password do not match")
+    
+    # Get user email associated with the OTP and verify OTP
+    user_email = await services.get_email_by_otp(otp)
+    if not user_email:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    
+    # Verify the OTP is still valid
+    if not await services.verify_otp(user_email, otp):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    # Hash the new password and update it
+    hashed_password = hash_password(data.password)
+    await user_crud.update_password(db, user_email, hashed_password)
+    
+    # Clean up the OTP from Redis after successful password reset
+    await services.delete_otp_from_redis(user_email)
+    
+    return {"msg": "Password reset successfully. Please login with your new password."}
+
+
+# === Change Password (for logged-in users) ===
+@router.post("/change-password")
+async def change_password(
+    data: schemas.ChangePasswordAuthenticatedSchema, 
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Changes a user's password when they are already authenticated.
+    - Verifies the current password.
+    - Validates that new password and confirmPassword match.
+    - Updates the password in the database.
+    - Optionally returns new tokens after password change.
+    """
+    # Verify current password
+    if not verify_password(data.currentPassword, current_user.password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    # Validate that new password and confirmPassword match
+    if data.password != data.confirmPassword:
+        raise HTTPException(status_code=400, detail="New password and confirm password do not match")
+    
+    # Hash the new password and update it
+    hashed_password = hash_password(data.password)
+    await user_crud.update_password(db, current_user.email, hashed_password)
+    
+    # Optionally generate new tokens after password change for security
+    tokens = await services.create_tokens(current_user.id, current_user.email)
+    await user_crud.save_tokens(db, current_user.id, tokens)
+    
+    return {
+        "msg": "Password changed successfully. Please use your new password for future logins.",
+        "tokens": tokens
+    }
+
+
+# === Legacy Reset Password Request (kept for backward compatibility) ===
+@router.post("/reset-password-legacy")
+async def reset_password_request(data: schemas.EmailSchema, db: AsyncSession = Depends(get_db)):
+    """
+    Legacy endpoint - use /init-reset-password instead.
+    Initiates a password reset process.
+    - Checks if the user exists.
+    - Generates and sends an OTP to the user's email for password reset verification.
+    """
+    user = await user_crud.get_user_by_email(db, data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    otp = services.generate_otp()
+    await services.save_otp_to_redis(user.email, otp)
+    await services.send_otp_email(user.email, otp)
+
+    return {"msg": "OTP sent to your email for password reset."}

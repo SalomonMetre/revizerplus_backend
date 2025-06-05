@@ -14,11 +14,37 @@ router = APIRouter(prefix="/users", tags=["User"])
 
 # === Get Profile ===
 @router.get("/me", response_model=schemas.UserProfile)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Retrieves the profile information of the current authenticated user.
+    Includes profile picture information if available.
     """
-    return current_user
+    # Get the profile image record for the current user
+    profile_image_record = await user_crud.get_profile_image_by_user_id(db, current_user.id)
+    
+    # Create a user profile response that includes profile picture info
+    user_profile = current_user
+    
+    # Add profile picture information if it exists
+    if profile_image_record:
+        # You can either return the full path or a URL endpoint
+        # Option 1: Return the relative path
+        user_profile.profile_picture_path = profile_image_record.path
+        
+        # Option 2: Return a URL endpoint (recommended)
+        # user_profile.profile_picture_url = f"/users/me/profile-image"
+        
+        # Option 3: Return both
+        user_profile.profile_picture_path = profile_image_record.path
+        user_profile.profile_picture_url = "/users/me/profile-image"
+    else:
+        user_profile.profile_picture_path = None
+        user_profile.profile_picture_url = None
+    
+    return user_profile
 
 # === Update Profile ===
 @router.put("/me", response_model=schemas.UserProfile)
@@ -33,7 +59,7 @@ async def update_me(
     Updates the profile information of the current authenticated user.
     - Accepts profile fields as form data.
     - Optionally accepts a profile image file.
-    - Returns the updated user profile.
+    - Returns the updated user profile with profile picture information.
     """
     # Debug print: See what Pydantic model received from form
     print(f"DEBUG: update_data Pydantic model: {update_data}")
@@ -64,6 +90,8 @@ async def update_me(
             )
 
     # Handle profile data update
+    updated_user = current_user  # Default to current user if no updates
+    
     if update_dict: # Only proceed if there's data to update
         print(f"DEBUG: Attempting to update user profile with: {update_dict}")
         try:
@@ -72,7 +100,6 @@ async def update_me(
                 # This case should ideally not happen if current_user is valid, but good for safety
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for update")
             print(f"DEBUG: User profile updated successfully for user ID: {current_user.id}")
-            return updated_user
         except SQLAlchemyError as e:
             # Catch database-related errors
             print(f"ERROR: Database error during profile update: {e}") # Debug print
@@ -88,10 +115,20 @@ async def update_me(
                 detail=f"An unexpected error occurred during profile update: {e}"
             )
     else:
-        print("DEBUG: No profile data or image provided for update. Returning current user.")
+        print("DEBUG: No profile data provided for update.")
     
-    # If no update_data and no image, return the current user profile (no change)
-    return current_user # Or return a success message if no update was performed
+    # Get the profile image record for the updated user
+    profile_image_record = await user_crud.get_profile_image_by_user_id(db, updated_user.id)
+    
+    # Add profile picture information to the response
+    if profile_image_record:
+        updated_user.profile_picture_path = profile_image_record.path
+        updated_user.profile_picture_url = "/users/me/profile-image"
+    else:
+        updated_user.profile_picture_path = None
+        updated_user.profile_picture_url = None
+    
+    return updated_user
 
 
 # === Get My Profile Image ===
