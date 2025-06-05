@@ -22,6 +22,20 @@ async def check_user_exists_by_email(db: AsyncSession, email: str) -> bool:
     return user is not None
 
 
+async def validate_access_token(db: AsyncSession, access_token: str) -> User:
+    """
+    Validates an access token by checking its existence and expiry in the Token table.
+    Returns the associated User if valid, None otherwise.
+    """
+    result = await db.execute(select(Token).filter_by(access_token=access_token))
+    token = result.scalars().first()
+    if token and token.access_token_expiry > datetime.now(timezone.utc):
+        user = await db.get(User, token.user_id)
+        if user and user.active:
+            return user
+    return None
+
+
 async def create_user(db: AsyncSession, user_data: SignUpSchema, hashed_password: str) -> User:
     """
     Creates a new user with the provided data and hashed password.

@@ -26,14 +26,26 @@ async def get_user_profile(
     user_profile = current_user
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, current_user.id)
 
-    # Add profile picture as base64 if it exists
+    # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
         full_image_path = UPLOAD_DIR / profile_image_record.path
         if full_image_path.is_file():
             try:
                 with open(full_image_path, "rb") as image_file:
-                    encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
-                user_profile.profile_picture = encoded_image
+                    image_data = image_file.read()
+                    encoded_image = base64.b64encode(image_data).decode("utf-8")
+                
+                # Determine MIME type based on file extension
+                mime_type = "image/jpeg"  # Default
+                if full_image_path.suffix.lower() == ".png":
+                    mime_type = "image/png"
+                elif full_image_path.suffix.lower() == ".gif":
+                    mime_type = "image/gif"
+                elif full_image_path.suffix.lower() == ".webp":
+                    mime_type = "image/webp"
+                
+                # Include MIME type in base64 string
+                user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
             except Exception as e:
                 print(f"WARNING: Failed to read or encode profile image at '{full_image_path}': {e}")
                 user_profile.profile_picture = None
@@ -104,14 +116,26 @@ async def update_user_profile(
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, updated_user.id)
     user_profile = updated_user
 
-    # Add profile picture as base64 if it exists
+    # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
         full_image_path = UPLOAD_DIR / profile_image_record.path
         if full_image_path.is_file():
             try:
                 with open(full_image_path, "rb") as image_file:
-                    encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
-                user_profile.profile_picture = encoded_image
+                    image_data = image_file.read()
+                    encoded_image = base64.b64encode(image_data).decode("utf-8")
+                
+                # Determine MIME type based on file extension
+                mime_type = "image/jpeg"  # Default
+                if full_image_path.suffix.lower() == ".png":
+                    mime_type = "image/png"
+                elif full_image_path.suffix.lower() == ".gif":
+                    mime_type = "image/gif"
+                elif full_image_path.suffix.lower() == ".webp":
+                    mime_type = "image/webp"
+                
+                # Include MIME type in base64 string
+                user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
             except Exception as e:
                 print(f"WARNING: Failed to read or encode profile image at '{full_image_path}': {e}")
                 user_profile.profile_picture = None
