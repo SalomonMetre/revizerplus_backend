@@ -9,6 +9,8 @@ from auth.models import User
 from utils.image_upload import save_profile_image, UPLOAD_DIR
 import base64
 from pathlib import Path
+from PIL import Image
+from io import BytesIO
 
 router = APIRouter(prefix="/users", tags=["User"])
 
