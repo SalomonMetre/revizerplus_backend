@@ -305,7 +305,7 @@ async def reset_password(
 
     # Validate that new_password and confirm_password match (handled by schema validator)
     # Hash the new password
-    hashed_password = services.hash_password(data.new_password)
+    hashed_password = hash_password(data.new_password)
 
     # Update the password in the database
     await user_crud.update_password(db, email, hashed_password)
