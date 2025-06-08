@@ -130,7 +130,6 @@ class UserProfile(BaseModel):
     class Config:
         from_attributes = True
 
-
 class UpdateUserProfile(BaseModel):
     prenom: Optional[str] = None
     nom: Optional[str] = None
@@ -141,11 +140,12 @@ class UpdateUserProfile(BaseModel):
     etablissement: Optional[str] = None
     profession: Optional[str] = None
     filiere: Optional[str] = None
-    annee: Optional[str] = None
+    annee: Optional[int] = None  # Changed to int to match User model
     role: Optional[UserRole] = None
 
     class Config:
         from_attributes = True
+        use_enum_values = True  # Serialize enums as their values
 
     @classmethod
     def as_form(
@@ -159,7 +159,7 @@ class UpdateUserProfile(BaseModel):
         etablissement: Optional[str] = Form(None),
         profession: Optional[str] = Form(None),
         filiere: Optional[str] = Form(None),
-        annee: Optional[str] = Form(None),
+        annee: Optional[int] = Form(None),  # Changed to int
         role: Optional[str] = Form(None),
     ) -> "UpdateUserProfile":
         user_role_enum = None
@@ -167,9 +167,8 @@ class UpdateUserProfile(BaseModel):
             try:
                 user_role_enum = UserRole(role)
             except ValueError:
-                print(f"Warning: Invalid role '{role}' provided in form data.")
-                user_role_enum = None
-
+                print(f"WARNING: Invalid role '{role}' provided in form data, setting role to None.")
+        
         return cls(
             prenom=prenom,
             nom=nom,

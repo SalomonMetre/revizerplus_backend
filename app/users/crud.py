@@ -140,10 +140,9 @@ async def revoke_tokens(db: AsyncSession, user_id: int):
     await db.execute(delete(Token).where(Token.user_id == user_id))
     await db.commit()
 
-
 async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict) -> User:
     """
-    Updates a user's profile with the provided data.
+    Updates a user's profile with the provided data, skipping None values and handling type conversions.
     """
     user = await db.get(User, user_id)
     if user:
@@ -152,16 +151,25 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
             "etablissement", "profession", "filiere", "annee", "role"
         }
         for key, value in update_data.items():
-            if key in allowed_fields:
+            if key in allowed_fields and value is not None:  # Skip None values
                 if key == "role":
-                    if value is not None:
-                        setattr(user, key, value.value)
+                    try:
+                        setattr(user, key, UserRole(value).value)
+                    except ValueError:
+                        print(f"WARNING: Invalid role '{value}' provided, skipping role update.")
+                        continue
+                elif key == "annee":
+                    try:
+                        # Convert string to integer for annee
+                        setattr(user, key, int(value) if value else None)
+                    except (ValueError, TypeError):
+                        print(f"WARNING: Invalid annee '{value}' provided, skipping annee update.")
+                        continue
                 else:
                     setattr(user, key, value)
         await db.commit()
         await db.refresh(user)
     return user
-
 
 async def link_profile_image(db: AsyncSession, user_id: int, filename: str):
     """

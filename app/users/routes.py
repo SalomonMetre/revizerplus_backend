@@ -68,8 +68,6 @@ async def get_user_profile(
 
     return user_profile
 
-
-
 @router.put("/me", response_model=schemas.UserProfile)
 async def update_user_profile(
     update_data: schemas.UpdateUserProfile = Depends(schemas.UpdateUserProfile.as_form),
@@ -82,17 +80,17 @@ async def update_user_profile(
     Returns the updated profile with the profile image as base64 if available.
     """
     print(f"DEBUG: Handling PUT request for user ID: {current_user.id}")
+    print(f"DEBUG: Current user before update: {current_user.__dict__}")
 
     # Handle profile data update
-    updated_user = current_user
     update_dict = update_data.model_dump(exclude_unset=True) if update_data else {}
+    print(f"DEBUG: Update data provided: {update_dict}")
     if update_dict:
-        print(f"DEBUG: Update data provided: {update_dict}")
         try:
             updated_user = await user_crud.update_user_profile(db, current_user.id, update_dict)
             if not updated_user:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for update")
-            print(f"DEBUG: User profile updated successfully for user ID: {current_user.id}")
+            print(f"DEBUG: Updated user: {updated_user.__dict__}")
         except SQLAlchemyError as e:
             print(f"ERROR: Database error during profile update: {e}")
             raise HTTPException(
@@ -105,6 +103,9 @@ async def update_user_profile(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Unexpected error during profile update: {e}"
             )
+    else:
+        updated_user = current_user
+        print(f"DEBUG: No update data provided, using current user: {updated_user.__dict__}")
 
     # Handle image upload if provided
     if image and image.filename:
@@ -115,7 +116,7 @@ async def update_user_profile(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file too large (max 5MB)")
             path = await save_profile_image(contents, current_user.id)
             await user_crud.link_profile_image(db, current_user.id, path)
-            print(f"DEBUG: Profile image linked: {path}")
+            printletin(f"DEBUG: Profile image linked: {path}")
         except Exception as e:
             print(f"ERROR: Failed to upload profile image: {e}")
             raise HTTPException(
@@ -126,6 +127,7 @@ async def update_user_profile(
     # Prepare the response
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, updated_user.id)
     user_profile = updated_user
+    print(f"DEBUG: User profile before response: {user_profile.__dict__}")
 
     # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
@@ -145,7 +147,6 @@ async def update_user_profile(
                 elif full_image_path.suffix.lower() == ".webp":
                     mime_type = "image/webp"
                 
-                # Include MIME type in base64 string
                 user_profile.profile_picture = f"data:{mime_type};base64,{encoded_image}"
             except Exception as e:
                 print(f"WARNING: Failed to read or encode profile image at '{full_image_path}': {e}")
@@ -157,4 +158,5 @@ async def update_user_profile(
     else:
         user_profile.profile_picture = None
 
+    print(f"DEBUG: Final response: {user_profile.__dict__}")
     return user_profile
