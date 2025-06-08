@@ -10,55 +10,29 @@ UPLOAD_DIR = Path("/home/revizerplus/uploads/profile_images")
 # Make sure the directory exists
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-async def save_profile_image(image_bytes: bytes, user_id: int) -> str:
+async def save_profile_image(contents: bytes, user_id: int, filename: str) -> str:
     """
-    Saves a profile image to the custom directory.
-    Generates a unique filename using user_id and a UUID to avoid conflicts.
-
-    Args:
-        image_bytes (bytes): The raw bytes content of the image file.
-        user_id (int): The ID of the user for whom the image is being saved.
-
-    Returns:
-        str: The unique filename (e.g., 'user_id_uuid.ext') that should be
-             stored in the database.
+    Saves a profile image to disk with a consistent filename based on user_id.
+    Returns the relative path to the saved image.
     """
-    # --- IMPORTANT: Robustly determine file extension ---
-    # The simplest way is to guess from magic bytes, but this is not foolproof.
-    # For production, consider a more robust library like 'python-magic'
-    # or ensure the client sends the correct content-type header for the image.
-    
-    # Basic magic number check (for common image types)
-    ext = ".jpg" # Default fallback
-    if image_bytes.startswith(b'\xFF\xD8\xFF'):
-        ext = ".jpg"
-    elif image_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
-        ext = ".png"
-    elif image_bytes.startswith(b'GIF87a') or image_bytes.startswith(b'GIF89a'):
-        ext = ".gif"
-    elif image_bytes.startswith(b'\x00\x00\x00\x18ftypheic'): # HEIC/HEIF (more complex)
-        ext = ".heic"
-    elif image_bytes.startswith(b'\x00\x00\x00 ftypmp42') or image_bytes.startswith(b'\x00\x00\x00\x14ftypqt  '): # Basic check for MP4/MOV if you allow videos
-        ext = ".mp4" # Or .mov, etc.
-    # Add more checks for other formats like WebP if needed
-
-    # Generate a unique filename using user_id for better organization/uniqueness
-    unique_filename = f"{user_id}_{uuid.uuid4().hex}{ext}"
-    file_path = UPLOAD_DIR / unique_filename
-
     try:
-        # Save the file asynchronously
-        # Since we already have contents (image_bytes), we just write them
-        with open(file_path, "wb") as f:
-            f.write(image_bytes)
-
-        # Return just the filename. The full path can be reconstructed later
-        # when serving static files or displaying the image.
-        return unique_filename
+        # Determine file extension from original filename
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+            raise ValueError(f"Unsupported image format: {suffix}")
+        
+        # Use consistent filename: user_<user_id><suffix>
+        file_name = f"user_{user_id}{suffix}"
+        file_path = UPLOAD_DIR / file_name
+        
+        # Validate and save image
+        image = Image.open(BytesIO(contents))
+        image.verify()  # Verify image integrity
+        image = Image.open(BytesIO(contents))  # Reopen for saving
+        image.save(file_path, format=image.format)
+        
+        print(f"DEBUG: Image saved for user {user_id} at {file_path}")
+        return str(file_name)  # Return relative path
     except Exception as e:
-        # Log the error for debugging purposes
-        print(f"Error saving profile image for user {user_id} to {file_path}: {e}")
-        # Re-raise as a more specific HTTPException in the FastAPI context
-        # if you want the API to return a 500 error directly from here.
-        # For now, just re-raising the original exception is fine, as users/routes.py handles it.
+        print(f"ERROR: Failed to save profile image for user {user_id}: {e}")
         raise

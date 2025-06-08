@@ -78,11 +78,14 @@ async def update_user_profile(
     """
     Updates the authenticated user's profile using multipart/form-data input.
     Only updates fields explicitly provided and responds with application/json.
-    Supports optional profile image upload.
+    Supports optional profile image upload, replacing any existing image.
     """
+    print(f"DEBUG: Handling PUT request for user ID: {current_user.id}")
+    print(f"DEBUG: Current user before update: {current_user.__dict__}")
 
     # Handle profile data update
     update_dict = update_data.model_dump(exclude_unset=True) if update_data else {}
+    print(f"DEBUG: Update data provided: {update_dict}")
     if not update_dict:
         print(f"WARNING: No valid update data provided; all fields are None or unset.")
 
@@ -91,7 +94,7 @@ async def update_user_profile(
             updated_user = await user_crud.update_user_profile(db, current_user.id, update_dict)
             if not updated_user:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for update")
-
+            print(f"DEBUG: Updated user: {updated_user.__dict__}")
         except SQLAlchemyError as e:
             print(f"ERROR: Database error during profile update: {e}")
             raise HTTPException(
@@ -106,15 +109,30 @@ async def update_user_profile(
             )
     else:
         updated_user = current_user
+        print(f"DEBUG: No update data provided, using current user: {updated_user.__dict__}")
 
     # Handle image upload if provided
     if image and image.filename:
+        print(f"DEBUG: Image file received: {image.filename}")
         try:
             contents = await image.read()
             if len(contents) > 5 * 1024 * 1024:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file too large (max 5MB)")
-            path = await save_profile_image(contents, current_user.id)
+            
+            # Check for existing image and delete it
+            existing_image = await user_crud.get_profile_image_by_user_id(db, current_user.id)
+            if existing_image:
+                old_image_path = UPLOAD_DIR / existing_image.path
+                if old_image_path.is_file():
+                    print(f"DEBUG: Deleting existing image at {old_image_path}")
+                    old_image_path.unlink()
+                else:
+                    print(f"WARNING: Existing image record found but file {old_image_path} does not exist")
+            
+            # Save new image
+            path = await save_profile_image(contents, current_user.id, image.filename)
             await user_crud.link_profile_image(db, current_user.id, path)
+            print(f"DEBUG: Profile image saved and linked: {path}")
         except Exception as e:
             print(f"ERROR: Failed to upload profile image: {e}")
             raise HTTPException(
@@ -125,6 +143,7 @@ async def update_user_profile(
     # Prepare the response
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, updated_user.id)
     user_profile = updated_user
+    print(f"DEBUG: User profile before response: {user_profile.__dict__}")
 
     # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
@@ -155,4 +174,5 @@ async def update_user_profile(
     else:
         user_profile.profile_picture = None
 
+    print(f"DEBUG: Final response: {user_profile.__dict__}")
     return user_profile

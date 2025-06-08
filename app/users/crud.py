@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import delete
 from auth.models import User, Token, ProfileImage
-from auth.schemas import SignUpSchema
+from auth.schemas import SignUpSchema, UserRole
 from datetime import datetime, timezone
 
 
@@ -160,7 +160,7 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
                         continue
                 elif key == "annee":
                     try:
-                        # Convert string to integer for annee
+                        # Convert to integer for annee
                         setattr(user, key, int(value) if value else None)
                     except (ValueError, TypeError):
                         print(f"WARNING: Invalid annee '{value}' provided, skipping annee update.")
@@ -171,23 +171,31 @@ async def update_user_profile(db: AsyncSession, user_id: int, update_data: dict)
         await db.refresh(user)
     return user
 
-async def link_profile_image(db: AsyncSession, user_id: int, filename: str):
-    """
-    Links a profile image to a user, replacing any existing image.
-    """
-    await db.execute(delete(ProfileImage).where(ProfileImage.user_id == user_id))
-    
-    profile_image = ProfileImage(
-        user_id=user_id,
-        path=filename
-    )
-    db.add(profile_image)
-    await db.commit()
-
-
 async def get_profile_image_by_user_id(db: AsyncSession, user_id: int) -> ProfileImage:
     """
-    Retrieves the ProfileImage record for a given user ID.
+    Retrieves the profile image record for a user.
     """
-    result = await db.execute(select(ProfileImage).filter_by(user_id=user_id))
-    return result.scalars().first()
+    result = await db.execute(select(ProfileImage).where(ProfileImage.user_id == user_id))
+    return result.scalar_one_or_none()
+
+async def link_profile_image(db: AsyncSession, user_id: int, path: str) -> None:
+    """
+    Links a profile image to a user, replacing any existing record.
+    """
+    try:
+        # Check for existing profile image record
+        existing_image = await get_profile_image_by_user_id(db, user_id)
+        if existing_image:
+            print(f"DEBUG: Replacing existing profile image record for user {user_id}")
+            existing_image.path = path
+            existing_image.updated_at = datetime.now(timezone.utc)
+        else:
+            print(f"DEBUG: Creating new profile image record for user {user_id}")
+            new_image = ProfileImage(user_id=user_id, path=path)
+            db.add(new_image)
+        
+        await db.commit()
+    except Exception as e:
+        print(f"ERROR: Failed to link profile image for user {user_id}: {e}")
+        await db.rollback()
+        raise
