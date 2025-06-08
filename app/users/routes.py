@@ -78,6 +78,7 @@ async def update_user_profile(
     """
     Updates the authenticated user's profile information and optionally uploads a new profile picture.
     Accepts multipart/form-data input and responds with application/json.
+    Only updates fields explicitly provided in the request.
     """
     print(f"DEBUG: Handling PUT request for user ID: {current_user.id}")
     print(f"DEBUG: Current user before update: {current_user.__dict__}")
@@ -163,3 +164,4 @@ async def update_user_profile(
 
     print(f"DEBUG: Final response: {user_profile.__dict__}")
     return user_profile
+   
