@@ -1,6 +1,8 @@
 import os
 import uuid
 from pathlib import Path
+from PIL import Image
+from io import BytesIO
 # No need for UploadFile import here, as we're directly receiving bytes
 
 # Your custom directory for profile images
