@@ -300,7 +300,7 @@ async def reset_password(
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     # Verify OTP validity
-    if not await services.check_otp_validity_efficient(data.otp):
+    if not await services.check_otp_validity(data.otp):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
     # Validate that new_password and confirm_password match (handled by schema validator)

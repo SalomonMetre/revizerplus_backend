@@ -193,24 +193,6 @@ async def get_email_by_otp_efficient(otp: str) -> str | None:
         print(f"ERROR: Failed to get email by OTP (efficient): {e}")
         return None
 
-
-async def check_otp_validity_efficient(otp: str) -> bool:
-    """
-    More efficient version of check_otp_validity using reverse lookup.
-    Use this if you implement save_otp_with_reverse_lookup.
-    """
-    try:
-        email = await r.get(f"otp_reverse:{otp}")
-        if email:
-            # Double-check that the OTP is still valid
-            stored_otp = await r.get(f"otp:{email}")
-            return stored_otp == otp
-        return False
-    except Exception as e:
-        print(f"ERROR: Failed to check OTP validity (efficient): {e}")
-        return False
-
-
 async def delete_otp_with_reverse_cleanup(email: str, otp: str = None):
     """
     Enhanced cleanup that removes both main and reverse lookup entries.
