@@ -85,6 +85,9 @@ async def update_user_profile(
     # Handle profile data update
     update_dict = update_data.model_dump(exclude_unset=True) if update_data else {}
     print(f"DEBUG: Update data provided: {update_dict}")
+    if not update_dict:
+        print(f"WARNING: No valid update data provided; all fields are None or unset.")
+    
     if update_dict:
         try:
             updated_user = await user_crud.update_user_profile(db, current_user.id, update_dict)
