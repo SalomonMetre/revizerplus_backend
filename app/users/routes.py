@@ -70,14 +70,14 @@ async def get_user_profile(
 
 @router.put("/me", response_model=schemas.UserProfile)
 async def update_user_profile(
-    update_data: schemas.UpdateUserProfile,  # Accept JSON input
+    update_data: schemas.UpdateUserProfile = Depends(schemas.UpdateUserProfile.as_form),
     image: UploadFile = File(None, description="Optional profile image to upload"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Updates the authenticated user's profile information and optionally uploads a new profile picture.
-    Returns the updated profile with the profile image as base64 if available.
+    Accepts multipart/form-data input and responds with application/json.
     """
     print(f"DEBUG: Handling PUT request for user ID: {current_user.id}")
     print(f"DEBUG: Current user before update: {current_user.__dict__}")
