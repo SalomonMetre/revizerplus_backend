@@ -267,10 +267,10 @@ async def init_reset_password(data: schemas.EmailSchema, db: AsyncSession = Depe
 
 
 # === Check Reset Password OTP Validity ===
-@router.get("/check-reset-password-validity")
+@router.get("/check-otp-validity")
 async def check_reset_password_validity(otp: str = Query(..., description="OTP to validate")):
     """
-    Checks if the provided OTP is valid for password reset.
+    Checks if the provided OTP is valid.
     Returns a boolean indicating OTP validity.
     """
     # Since we need to check OTP validity without knowing the email,
