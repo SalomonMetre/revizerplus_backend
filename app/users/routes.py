@@ -91,7 +91,7 @@ async def update_user_profile(
             updated_user = await user_crud.update_user_profile(db, current_user.id, update_dict)
             if not updated_user:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for update")
-            print(f"DEBUG: Updated user: {updated_user.__dict__}")
+
         except SQLAlchemyError as e:
             print(f"ERROR: Database error during profile update: {e}")
             raise HTTPException(
@@ -106,7 +106,6 @@ async def update_user_profile(
             )
     else:
         updated_user = current_user
-        print(f"DEBUG: No update data provided, using current user: {updated_user.__dict__}")
 
     # Handle image upload if provided
     if image and image.filename:
@@ -116,7 +115,6 @@ async def update_user_profile(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file too large (max 5MB)")
             path = await save_profile_image(contents, current_user.id)
             await user_crud.link_profile_image(db, current_user.id, path)
-            print(f"DEBUG: Profile image linked: {path}")
         except Exception as e:
             print(f"ERROR: Failed to upload profile image: {e}")
             raise HTTPException(
