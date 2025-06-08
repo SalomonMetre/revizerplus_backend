@@ -50,6 +50,28 @@ async def sign_up(user_data: schemas.SignUpSchema, db: AsyncSession = Depends(ge
 
     return {"msg": "User created. OTP sent to email."}
 
+# === Request OTP ===
+@router.post("/request-otp")
+async def request_otp(email_data: schemas.EmailSchema, db: AsyncSession = Depends(get_db)):
+    """
+    Sends an OTP to the user's email for account verification.
+    - Checks if the email is registered and not yet OTP-confirmed.
+    - Generates and saves the OTP to Redis.
+    - Sends the OTP via email.
+    """
+    user = await user_crud.get_user_by_email(db, email_data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="Email not found")
+
+    if user.otp_confirmed:
+        raise HTTPException(status_code=400, detail="Email already verified")
+
+    otp = services.generate_otp()
+    await services.save_otp_to_redis(email_data.email, otp)
+    await services.send_otp_email(email_data.email, otp)
+
+    return {"msg": "OTP sent to email."}
+
 
 # === Verify Account (OTP) ===
 @router.post("/verify-account")
