@@ -70,7 +70,7 @@ async def get_user_profile(
 
 @router.put("/me", response_model=schemas.UserProfile)
 async def update_user_profile(
-    update_data: schemas.UpdateUserProfile = Depends(schemas.UpdateUserProfile.as_form),
+    update_data: schemas.UpdateUserProfile,  # Accept JSON input
     image: UploadFile = File(None, description="Optional profile image to upload"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -116,7 +116,7 @@ async def update_user_profile(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file too large (max 5MB)")
             path = await save_profile_image(contents, current_user.id)
             await user_crud.link_profile_image(db, current_user.id, path)
-            printletin(f"DEBUG: Profile image linked: {path}")
+            print(f"DEBUG: Profile image linked: {path}")
         except Exception as e:
             print(f"ERROR: Failed to upload profile image: {e}")
             raise HTTPException(
