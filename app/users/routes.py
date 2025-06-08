@@ -80,12 +80,9 @@ async def update_user_profile(
     Only updates fields explicitly provided and responds with application/json.
     Supports optional profile image upload.
     """
-    print(f"DEBUG: Handling PUT request for user ID: {current_user.id}")
-    print(f"DEBUG: Current user before update: {current_user.__dict__}")
 
     # Handle profile data update
     update_dict = update_data.model_dump(exclude_unset=True) if update_data else {}
-    print(f"DEBUG: Update data provided: {update_dict}")
     if not update_dict:
         print(f"WARNING: No valid update data provided; all fields are None or unset.")
 
@@ -113,7 +110,6 @@ async def update_user_profile(
 
     # Handle image upload if provided
     if image and image.filename:
-        print(f"DEBUG: Image file received: {image.filename}")
         try:
             contents = await image.read()
             if len(contents) > 5 * 1024 * 1024:
@@ -131,7 +127,6 @@ async def update_user_profile(
     # Prepare the response
     profile_image_record = await user_crud.get_profile_image_by_user_id(db, updated_user.id)
     user_profile = updated_user
-    print(f"DEBUG: User profile before response: {user_profile.__dict__}")
 
     # Add profile picture as base64 with MIME type if it exists
     if profile_image_record:
@@ -162,5 +157,4 @@ async def update_user_profile(
     else:
         user_profile.profile_picture = None
 
-    print(f"DEBUG: Final response: {user_profile.__dict__}")
     return user_profile
